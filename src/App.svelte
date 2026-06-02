@@ -6,6 +6,8 @@
   import sampleImage from "./assets/sample.png";
   import Manager from "./manager";
   import { drawDifference } from "./difference";
+  import { drawDiffDebug } from "./diffDebug";
+  import type { Color } from "./type";
 
   let canvas = $state<HTMLCanvasElement | null>(null);
   let debugCanvas = $state<HTMLCanvasElement | null>(null);
@@ -103,16 +105,25 @@
   async function handleCompute() {
     if (!debugCanvas || !charCanvas) return;
     try {
-      const dataList = createRandomDataList({
-        x: { min: 0.5, max: 0.5 },
-        y: { min: 0.5, max: 0.5 },
-        scale: { min: 1, max: 5 },
-        opacity: { min: 0.1, max: 1 },
-        rotation: { min: 0, max: 360 },
-        num: 1,
-      });
+      const dataList = createRandomDataList(
+        {
+          x: { min: 0.5, max: 0.5 },
+          y: { min: 0.5, max: 0.5 },
+          scale: { min: 1, max: 5 },
+          opacity: { min: 0.1, max: 1 },
+          rotation: { min: 0, max: 360 },
+        },
+        1,
+      );
       console.log(dataList);
-      await execute(dataList, debugCanvas, charCanvas);
+      const sampleAvgColors = await execute(dataList, debugCanvas, charCanvas);
+      if (!sampleAvgColors) return;
+      const color = [
+        sampleAvgColors[0].r,
+        sampleAvgColors[0].g,
+        sampleAvgColors[0].b,
+      ] as Color;
+      await drawDiffDebug(color, dataList);
     } catch (e) {
       console.error("[compute] 실행 실패:", e);
     }
