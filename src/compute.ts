@@ -42,16 +42,19 @@ export async function execute(
   const view = Manager.bgView;
   const viewSize = [Manager.canvasWidth, Manager.canvasHeight] as const;
 
-  // char texture 생성
+  // char texture 생성 (diffDebug 등에서 Manager로 재사용)
   const charTexture = root
     .createTexture({
       size: [charCanvas.width, charCanvas.height],
       format: "rgba8unorm" as const,
     })
-    .$usage("sampled");
+    .$usage("sampled")
+    .$usage("storage");
   charTexture.write(charCanvas);
 
   const charView = charTexture.createView(d.texture2d(d.f32));
+  Manager.charTexture = charTexture;
+  Manager.charView = charView;
 
   // 어떤 식으로든 이미지를 생성하는건 상관없음
   // 그냥 이미지를 storage용으로 생성하고, 그걸 textureStorage2d view로 보면 됨
@@ -198,10 +201,10 @@ export async function execute(
     .draw(6);
 
   const sampleAvgColor = await avgColorBuffer.read();
-
-  console.log(
-    Math.round(sampleAvgColor[0].r / sampleAvgColor[0].count),
-    Math.round(sampleAvgColor[0].g / sampleAvgColor[0].count),
-    Math.round(sampleAvgColor[0].b / sampleAvgColor[0].count),
-  );
+  for (const color of sampleAvgColor) {
+    color.r /= color.count;
+    color.g /= color.count;
+    color.b /= color.count;
+  }
+  return sampleAvgColor;
 }
