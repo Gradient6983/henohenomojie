@@ -87,6 +87,7 @@ export async function execute(
     d.arrayOf(avgColor, dataList.length),
   );
 
+
   // gpu에서 실행되는 프로그램 생성
   const program = root.createGuardedComputePipeline((xIdx, yIdx) => {
     "use gpu";
@@ -200,11 +201,12 @@ export async function execute(
     })
     .draw(6);
 
+  // 0~255 사이의 값을 0~1 사이의 값으로 바꾸기
   const sampleAvgColor = await avgColorBuffer.read();
   for (const color of sampleAvgColor) {
-    color.r /= color.count;
-    color.g /= color.count;
-    color.b /= color.count;
+    color.r = color.r / (color.count * 255);
+    color.g = color.g / (color.count * 255);
+    color.b = color.b / (color.count * 255);
   }
   return sampleAvgColor;
 }
