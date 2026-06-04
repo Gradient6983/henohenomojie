@@ -1,4 +1,4 @@
-import { d, std } from "typegpu";
+import tgpu, { d, std } from "typegpu";
 import Manager from "./manager";
 import type { CharPos, Color } from "./type";
 
@@ -26,7 +26,7 @@ export async function drawDiffDebug(
 
   // 2. 그런 다음에 위치와 색 데이터를 기반으로 char texture를 debug canvas에 그림
   // 차이를 계산할 array buffer 생성
-  const diffBuffer = root.createMutable(d.arrayOf(d.f32, data.length));
+  const diffBuffer = root.createMutable(d.arrayOf(d.atomic(d.u32), data.length));
   const posStruct = d.struct({
     x: d.f32,
     y: d.f32,
@@ -43,10 +43,12 @@ export async function drawDiffDebug(
   // 3. 그리고 기존 이미지와의 char이 그려진 이미지와의 차이를 계산함
 
   // char color를 buffer에 저장
-  console.log(color);
   const charColorBuffer = root.createReadonly(d.vec3f, d.vec3f(...color));
   const bgTextureView = Manager.bgView;
   if (!bgTextureView) return;
+
+  const factor = tgpu.const(d.u32, 1_000_000_000);
+  const PI = tgpu.const(d.f32, 3.141592);
 
   // compute shader 생성
   const program = root.createGuardedComputePipeline((xIdx, yIdx) => {
@@ -70,7 +72,7 @@ export async function drawDiffDebug(
       d.vec3f(0, 1 / candidate.scale, 0),
       d.vec3f(0, 0, 1),
     );
-    const rotationRad = (-candidate.rotation * 3.141592) / 180;
+    const rotationRad = (-candidate.rotation * PI.$) / 180;
     const rotationMatrix = d.mat3x3f(
       d.vec3f(std.cos(rotationRad), std.sin(rotationRad), 0),
       d.vec3f(-std.sin(rotationRad), std.cos(rotationRad), 0),
@@ -116,14 +118,19 @@ export async function drawDiffDebug(
     // 저장할때 texture dimension값으로 나눠 주는게 계산에 편하려나?
     // 아니면 나중에 빼는게 좋으려나? 일단은 texture dimension값으로 나눠줌
     const pixelCount = bgTexDimension.x * bgTexDimension.y;
-    diffBuffer.$[0] = d.f32(t / pixelCount); // 일단은 임시로 0번째 위치에 저장
-    // 나중에 정수로 바꾸고 atomic add 하기
-    // std.atomicAdd(diffBuffer.$[0], d.f32(t / pixelCount));
+    // atomidAdd는 현재 정수만 계산할 수 있기에 소수점 9째 자리까지 정수로 변환해서 저장
+    // 일단은 임시로 0번째 위치에 저장
+    std.atomicAdd(diffBuffer.$[0], d.u32(t / pixelCount * factor.$)); 
   });
 
   program.dispatchThreads(Manager.canvasWidth, Manager.canvasHeight);
 
-  const diff = await diffBuffer.read();
-  console.log("diff: ", diff[0]);
-  return diff;
+  const diffArray = await diffBuffer.read();
+
+  // 다시 factor로 나눠주기 (소수점 9째 자리까지 정수로 변환해서 저장했기에)
+  for (let diff of diffArray) {
+    diff /= factor.$;
+  }
+
+  return diffArray;
 }
