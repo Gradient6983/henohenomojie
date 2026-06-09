@@ -7,7 +7,8 @@
   import Manager from "./manager";
   import { drawDifference } from "./difference";
   import { drawDiffDebug } from "./diffDebug";
-  import type { Color } from "./type";
+  import type { CharPos, Color } from "./type";
+  import drawCandidate from "./drawCandidate";
 
   let canvas = $state<HTMLCanvasElement | null>(null);
   let debugCanvas = $state<HTMLCanvasElement | null>(null);
@@ -41,7 +42,7 @@
 
   const devicePixelRatio = window.devicePixelRatio || 1;
 
-  const charSize = 100;
+  const charSize = 960;
   const charPadding = 10;
   const charCanvasSize = Math.ceil(
     (charSize + charPadding * 2) * devicePixelRatio,
@@ -65,6 +66,12 @@
   let currentIndex = $state(0);
 
   let nextDisabled = $derived(currentIndex >= processedText.length - 1);
+
+  let dataList = $state<CharPos[]>([]);
+  let colors = $state<Color[]>([]);
+  let diffs = $state<number[]>([]);
+  let diffRanks = $state<number[]>([]);
+  let currentCandidateIndex = $state(0);
 
   function handleChar() {
     currentIndex++;
@@ -105,25 +112,28 @@
   async function handleCompute() {
     if (!debugCanvas || !charCanvas) return;
     try {
-      const dataList = createRandomDataList(
+      dataList = createRandomDataList(
         {
-          x: { min: 0.5, max: 0.5 },
-          y: { min: 0.5, max: 0.5 },
+          x: { min: 0, max: 1 },
+          y: { min: 0, max: 1 },
           scale: { min: 1, max: 5 },
-          opacity: { min: 0.1, max: 1 },
+          opacity: { min: 0.5, max: 1 },
           rotation: { min: 0, max: 360 },
         },
-        1,
+        100,
       );
-      console.log(dataList);
       const sampleAvgColors = await execute(dataList, debugCanvas, charCanvas);
       if (!sampleAvgColors) return;
-      const color = [
-        sampleAvgColors[0].r,
-        sampleAvgColors[0].g,
-        sampleAvgColors[0].b,
-      ] as Color;
-      await drawDiffDebug(color, dataList);
+      colors = sampleAvgColors.map(
+        (color) => [color.r, color.g, color.b] as Color,
+      );
+      const diffArray = await drawDiffDebug(colors, dataList);
+      if (!diffArray) throw new Error("diffArray is undefined");
+      diffs = diffArray;
+
+      const diffWithIdx = diffArray.map((value, index) => ({ value, index }));
+      const diffSorted = diffWithIdx.sort((a, b) => a.value - b.value);
+      diffRanks = diffSorted.map((item) => item.index);
     } catch (e) {
       console.error("[compute] 실행 실패:", e);
     }
@@ -164,6 +174,69 @@
       <pre>{text}</pre>
       <p>Currnet: {currentChar}</p>
       <p>Index: {currentIndex}</p>
+      {#if diffRanks.length > 0}
+        {@const idx = diffRanks[currentCandidateIndex]}
+        <p>Candidate {diffRanks.length} created</p>
+        <table>
+          <tbody>
+            <tr>
+              <th> index </th>
+              <td>{idx + 1}</td>
+            </tr>
+            <tr>
+              <th> x </th>
+              <td>{dataList[idx].x.toFixed(2)}</td>
+            </tr>
+            <tr>
+              <th> y </th>
+              <td>{dataList[idx].y.toFixed(2)}</td>
+            </tr>
+            <tr>
+              <th> scale </th>
+              <td>{dataList[idx].scale.toFixed(2)}</td>
+            </tr>
+            <tr>
+              <th> opacity </th>
+              <td>{dataList[idx].opacity.toFixed(2)}</td>
+            </tr>
+            <tr>
+              <th> rotation </th>
+              <td>{dataList[idx].rotation.toFixed(2)}</td>
+            </tr>
+            <tr>
+              <th> diff </th>
+              <td>{diffs[idx] / 1_000_000_000}</td>
+            </tr>
+            <tr>
+              <th> color </th>
+              <td>{colors[idx].map((c) => Math.trunc(c * 255)).join(", ")}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div>
+          <button
+            onclick={() =>
+              drawCandidate(
+                dataList[idx],
+                colors[idx],
+                evolutionCanvas!,
+                charCanvas!,
+              )}
+          >
+            draw
+          </button>
+          <button
+            disabled={currentCandidateIndex <= 0}
+            onclick={() => currentCandidateIndex--}
+          >
+            prev
+          </button>
+          <button
+            disabled={currentCandidateIndex >= dataList.length - 1}
+            onclick={() => currentCandidateIndex++}>next</button
+          >
+        </div>
+      {/if}
     </div>
   </div>
 </div>
