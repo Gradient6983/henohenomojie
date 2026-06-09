@@ -1,11 +1,4 @@
-import {
-  d,
-  tgpu,
-  type TgpuRoot,
-  type TgpuSampler,
-  type TgpuTexture,
-  type TgpuTextureView,
-} from "typegpu";
+import { d, tgpu, type TgpuTexture, type TgpuTextureView } from "typegpu";
 
 const root = await tgpu.init();
 
