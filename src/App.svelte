@@ -20,7 +20,7 @@
       return;
     await Manager.loadImage(sampleImage);
     Manager.initSizes();
-    Manager.initImageTexture();
+    Manager.initTexture();
 
     const canvasList = [
       originalImage,
@@ -107,36 +107,28 @@
   });
 
   async function handleCompute() {
+    const firstCandidateNum = 1000;
+    const epochNum = 10;
+    const topCandidateNum = 50;
+
     if (!textOnImage || !charCanvas) return;
     let diffArray: number[] = [];
-    let dataCandidateList: CharPos[] = [];
-    try {
-      const epochNum = 10;
-      for (let i = 0; i < epochNum; i++) {
-        if (i == 0) {
-          dataCandidateList = createRandomDataList(
-            {
-              x: { min: 0, max: 1 },
-              y: { min: 0, max: 1 },
-              scale: { min: 1, max: 5 },
-              opacity: { min: 0.5, max: 1 },
-              rotation: { min: 0, max: 360 },
-            },
-            100,
-          );
-        } else {
-          // 상위 10개의 결과들에서 10개의 variance를 만듦
-          // 초기 오브젝트들을 놓을 때는 variance를 크게 주다가 나중으로 가면 점점 작게 줌
-          const top10 = dataCandidateList.slice(0, 10);
-          dataCandidateList = [];
-          for (const data of top10) {
-            const varianceList = addRandomVariance(data, 100, 0.1);
-            dataCandidateList.push(...varianceList);
-          }
-        }
+    let dataCandidateList: CharPos[] = createRandomDataList(
+      {
+        x: { min: 0, max: 1 },
+        y: { min: 0, max: 1 },
+        scale: { min: 1, max: 5 },
+        opacity: { min: 0.5, max: 1 },
+        rotation: { min: 0, max: 360 },
+      },
+      firstCandidateNum,
+    );
 
+    try {
+      // 임시로 정의한 epochNum
+      for (let i = 0; i < epochNum; i++) {
         const sampleAvgColors = await computeColor(
-          dataList,
+          dataCandidateList,
           textOnImage,
           charCanvas,
         );
@@ -144,9 +136,20 @@
         colors = sampleAvgColors.map(
           (color) => [color.r, color.g, color.b] as Color,
         );
-        const result = await debugDifference(colors, dataList);
+        const result = await debugDifference(colors, dataCandidateList);
         if (!result) throw new Error("debugDifference failed");
         diffArray = result;
+
+        // 상위 10개의 결과들에서 10개의 variance를 만듦
+        // 초기 오브젝트들을 놓을 때는 variance를 크게 주다가 나중으로 가면 점점 작게 줌
+        // 0.1이라는 수치는 임시적인 것이기 때문에 추후에 결과를 보고 수정이 필요함
+        const top10 = dataCandidateList.slice(0, topCandidateNum);
+        dataCandidateList = [];
+
+        for (const data of top10) {
+          const varianceList = addRandomVariance(data, 100, 0.1);
+          dataCandidateList.push(...varianceList);
+        }
       }
       if (!diffArray) throw new Error("diffArray is undefined");
       diffs = diffArray;
@@ -154,6 +157,7 @@
       const diffWithIdx = diffArray.map((value, index) => ({ value, index }));
       const diffSorted = diffWithIdx.sort((a, b) => a.value - b.value);
       diffRanks = diffSorted.map((item) => item.index);
+      dataList = dataCandidateList;
     } catch (e) {
       console.error("[compute] 실행 실패:", e);
     }
