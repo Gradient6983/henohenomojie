@@ -61,13 +61,32 @@ export function createRandomDataList(
   }));
 }
 
-export function addRandomVariance(data: CharPos, length: number, variance: number): CharPos[] {
+/**
+ * 원본 글자 위치 데이터에 변동 정도를 적용하여 새로운 글자 위치 데이터를 생성하는 함수
+ * @param data 원본 글자 위치 데이터
+ * @param length 생성할 글자 위치 데이터의 개수
+ * @param variance 변동 정도 (0~1)
+ * @returns 변동 정도를 적용한 글자 위치 데이터 배열
+ */
+export function addRandomVariance(
+  data: CharPos,
+  length: number,
+  variance: number,
+): CharPos[] {
+  // 각도는 기본이 0~360도이기에 360을 곱해서 변동 정도를 계산
+  const rotationVariance = 360 * variance;
+  // 마찬가지로 크기는 기본이 0.1~5사이에서 움직일 예정이기에 5를 곱함
+  // 이는 임시적인 수치이기에 추후에 수정될 수 있음
+  const scaleVariance = 5 * variance;
   return Array.from({ length }, (_, _i) => ({
     x: data.x + getRandomNumber({ min: -variance, max: variance }),
     y: data.y + getRandomNumber({ min: -variance, max: variance }),
-    scale: data.scale + getRandomNumber({ min: -variance, max: variance }),
+    scale:
+      data.scale + getRandomNumber({ min: -scaleVariance, max: scaleVariance }),
     opacity: data.opacity + getRandomNumber({ min: -variance, max: variance }),
-    rotation: data.rotation + getRandomNumber({ min: -variance, max: variance }),
+    rotation:
+      data.rotation +
+      getRandomNumber({ min: -rotationVariance, max: rotationVariance }),
   }));
 }
 
