@@ -1,44 +1,41 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import canvasDrawImage from "./image";
-  import { createRandomDataList, loadImage, updateCanvasSize } from "./util";
-  import { execute } from "./compute";
   import sampleImage from "./assets/sample.png";
   import Manager from "./manager";
-  import { drawDifference } from "./difference";
-  import { drawDiffDebug } from "./diffDebug";
   import type { CharPos, Color } from "./type";
-  import drawCandidate from "./drawCandidate";
+  import { addRandomVariance, createRandomDataList } from "./util";
+  import computeChar from "./webgpu/computeChar";
+  import { computeColor } from "./webgpu/computeColor";
+  import { debugDifference } from "./webgpu/debugDifference";
+  import { drawDifference } from "./webgpu/drawDifference";
+  import drawImage from "./webgpu/drawImage";
 
-  let canvas = $state<HTMLCanvasElement | null>(null);
-  let debugCanvas = $state<HTMLCanvasElement | null>(null);
-  let differenceCanvas = $state<HTMLCanvasElement | null>(null);
-  let evolutionCanvas = $state<HTMLCanvasElement | null>(null);
+  let originalImage = $state<HTMLCanvasElement | null>(null);
+  let textOnImage = $state<HTMLCanvasElement | null>(null);
+  let imageDifference = $state<HTMLCanvasElement | null>(null);
+  let textOnlyImage = $state<HTMLCanvasElement | null>(null);
 
   onMount(async () => {
-    if (!canvas || !debugCanvas || !differenceCanvas || !evolutionCanvas)
+    if (!originalImage || !textOnImage || !imageDifference || !textOnlyImage)
       return;
-    await loadImage(sampleImage);
-    updateCanvasSize(canvas);
-    updateCanvasSize(debugCanvas);
-    updateCanvasSize(differenceCanvas);
-    updateCanvasSize(evolutionCanvas);
-    await canvasDrawImage(canvas);
-    await drawDifference(differenceCanvas);
+    await Manager.loadImage(sampleImage);
+    Manager.initSizes();
+    Manager.initImageTexture();
+
+    const canvasList = [
+      originalImage,
+      textOnImage,
+      imageDifference,
+      textOnlyImage,
+    ];
+    for (const canvas of canvasList) {
+      Manager.initCanvas(canvas);
+    }
+    await drawImage(originalImage);
+    await drawDifference(imageDifference);
+
+    // char canvas 초기화
   });
-
-  // let count = $state(0);
-  // let incrementBy = $state(10);
-
-  // async function handleClick() {
-  //   const state = await execute();
-  //   count = state.counter;
-  //   incrementBy = state.incrementBy;
-  // }
-
-  // onMount(() => {
-  //   if (canvas) render(canvas);
-  // });
 
   const devicePixelRatio = window.devicePixelRatio || 1;
 
@@ -110,24 +107,47 @@
   });
 
   async function handleCompute() {
-    if (!debugCanvas || !charCanvas) return;
+    if (!textOnImage || !charCanvas) return;
+    let diffArray: number[] = [];
+    let dataCandidateList: CharPos[] = [];
     try {
-      dataList = createRandomDataList(
-        {
-          x: { min: 0, max: 1 },
-          y: { min: 0, max: 1 },
-          scale: { min: 1, max: 5 },
-          opacity: { min: 0.5, max: 1 },
-          rotation: { min: 0, max: 360 },
-        },
-        100,
-      );
-      const sampleAvgColors = await execute(dataList, debugCanvas, charCanvas);
-      if (!sampleAvgColors) return;
-      colors = sampleAvgColors.map(
-        (color) => [color.r, color.g, color.b] as Color,
-      );
-      const diffArray = await drawDiffDebug(colors, dataList);
+      const epochNum = 10;
+      for (let i = 0; i < epochNum; i++) {
+        if (i == 0) {
+          dataCandidateList = createRandomDataList(
+            {
+              x: { min: 0, max: 1 },
+              y: { min: 0, max: 1 },
+              scale: { min: 1, max: 5 },
+              opacity: { min: 0.5, max: 1 },
+              rotation: { min: 0, max: 360 },
+            },
+            100,
+          );
+        } else {
+          // 상위 10개의 결과들에서 10개의 variance를 만듦
+          // 초기 오브젝트들을 놓을 때는 variance를 크게 주다가 나중으로 가면 점점 작게 줌
+          const top10 = dataCandidateList.slice(0, 10);
+          dataCandidateList = [];
+          for (const data of top10) {
+            const varianceList = addRandomVariance(data, 100, 0.1);
+            dataCandidateList.push(...varianceList);
+          }
+        }
+
+        const sampleAvgColors = await computeColor(
+          dataList,
+          textOnImage,
+          charCanvas,
+        );
+        if (!sampleAvgColors) return;
+        colors = sampleAvgColors.map(
+          (color) => [color.r, color.g, color.b] as Color,
+        );
+        const result = await debugDifference(colors, dataList);
+        if (!result) throw new Error("debugDifference failed");
+        diffArray = result;
+      }
       if (!diffArray) throw new Error("diffArray is undefined");
       diffs = diffArray;
 
@@ -145,10 +165,10 @@
   <p>Count: {count}</p>
   <p>Increment By: {incrementBy}</p> -->
   <div class="canvas-container">
-    <canvas bind:this={canvas}></canvas>
-    <canvas bind:this={debugCanvas}></canvas>
-    <canvas bind:this={differenceCanvas}></canvas>
-    <canvas bind:this={evolutionCanvas}></canvas>
+    <canvas bind:this={originalImage}></canvas>
+    <canvas bind:this={textOnImage}></canvas>
+    <canvas bind:this={imageDifference}></canvas>
+    <canvas bind:this={textOnlyImage}></canvas>
   </div>
 
   <div class="container">
@@ -158,8 +178,6 @@
         bind:this={charCanvas}
         width={charCanvasSize}
         height={charCanvasSize}
-        style:width="{charStyleSize}px"
-        style:height="{charStyleSize}px"
         class="char-canvas"
       ></canvas>
     </div>
@@ -168,75 +186,72 @@
       <button onclick={handleCompute}>compute</button>
       <button onclick={() => handleChar()} disabled={nextDisabled}>next</button>
       <button>reset</button>
-    </div>
-    <div>
-      <p>Text</p>
-      <pre>{text}</pre>
-      <p>Currnet: {currentChar}</p>
-      <p>Index: {currentIndex}</p>
-      {#if diffRanks.length > 0}
-        {@const idx = diffRanks[currentCandidateIndex]}
-        <p>Candidate {diffRanks.length} created</p>
-        <table>
-          <tbody>
-            <tr>
-              <th> index </th>
-              <td>{idx + 1}</td>
-            </tr>
-            <tr>
-              <th> x </th>
-              <td>{dataList[idx].x.toFixed(2)}</td>
-            </tr>
-            <tr>
-              <th> y </th>
-              <td>{dataList[idx].y.toFixed(2)}</td>
-            </tr>
-            <tr>
-              <th> scale </th>
-              <td>{dataList[idx].scale.toFixed(2)}</td>
-            </tr>
-            <tr>
-              <th> opacity </th>
-              <td>{dataList[idx].opacity.toFixed(2)}</td>
-            </tr>
-            <tr>
-              <th> rotation </th>
-              <td>{dataList[idx].rotation.toFixed(2)}</td>
-            </tr>
-            <tr>
-              <th> diff </th>
-              <td>{diffs[idx] / 1_000_000_000}</td>
-            </tr>
-            <tr>
-              <th> color </th>
-              <td>{colors[idx].map((c) => Math.trunc(c * 255)).join(", ")}</td>
-            </tr>
-          </tbody>
-        </table>
-        <div>
-          <button
-            onclick={() =>
-              drawCandidate(
-                dataList[idx],
-                colors[idx],
-                evolutionCanvas!,
-                charCanvas!,
-              )}
-          >
-            draw
-          </button>
-          <button
-            disabled={currentCandidateIndex <= 0}
-            onclick={() => currentCandidateIndex--}
-          >
-            prev
-          </button>
-          <button
-            disabled={currentCandidateIndex >= dataList.length - 1}
-            onclick={() => currentCandidateIndex++}>next</button
-          >
-        </div>
-      {/if}
+
+      <div>
+        <p>Text</p>
+        <pre>{text}</pre>
+        <p>Currnet: {currentChar}</p>
+        <p>Index: {currentIndex}</p>
+        {#if diffRanks.length > 0}
+          {@const idx = diffRanks[currentCandidateIndex]}
+          <p>Candidate {diffRanks.length} created</p>
+          <table>
+            <tbody>
+              <tr>
+                <th> index </th>
+                <td>{idx + 1}</td>
+              </tr>
+              <tr>
+                <th> x </th>
+                <td>{dataList[idx].x.toFixed(2)}</td>
+              </tr>
+              <tr>
+                <th> y </th>
+                <td>{dataList[idx].y.toFixed(2)}</td>
+              </tr>
+              <tr>
+                <th> scale </th>
+                <td>{dataList[idx].scale.toFixed(2)}</td>
+              </tr>
+              <tr>
+                <th> opacity </th>
+                <td>{dataList[idx].opacity.toFixed(2)}</td>
+              </tr>
+              <tr>
+                <th> rotation </th>
+                <td>{dataList[idx].rotation.toFixed(2)}</td>
+              </tr>
+              <tr>
+                <th> diff </th>
+                <td>{diffs[idx] / 1_000_000_000}</td>
+              </tr>
+              <tr>
+                <th> color </th>
+                <td>{colors[idx].map((c) => Math.trunc(c * 255)).join(", ")}</td
+                >
+              </tr>
+            </tbody>
+          </table>
+          <div>
+            <button
+              onclick={() =>
+                computeChar(dataList[idx], colors[idx], textOnlyImage!)}
+            >
+              draw
+            </button>
+            <button
+              disabled={currentCandidateIndex <= 0}
+              onclick={() => currentCandidateIndex--}
+            >
+              prev
+            </button>
+            <button
+              disabled={currentCandidateIndex >= dataList.length - 1}
+              onclick={() => currentCandidateIndex++}>next</button
+            >
+          </div>
+        {/if}
+      </div>
     </div>
   </div>
 </div>
@@ -244,16 +259,21 @@
 <style>
   canvas {
     border: 1px solid black;
+    width: 100%;
   }
+
   .char-canvas {
+    width: 200px;
     background-color: #000000;
   }
   .container {
+    margin: 0 auto;
     display: flex;
-    flex-direction: column;
+    flex-direction: row;
     justify-content: center;
     align-items: center;
     gap: 10px;
+    width: 80%;
   }
   .canvas-container {
     width: 80%;
