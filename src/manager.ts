@@ -5,6 +5,7 @@ import {
   type TgpuTexture,
   type TgpuTextureView,
 } from "typegpu";
+import { getFilledCanvas } from "./util";
 
 const root = await tgpu.init();
 
@@ -50,11 +51,13 @@ export default class Manager {
   }
 
   /** 이미지 텍스처 초기화 */
-  static initImageTexture() {
-    if (!Manager.image)
-      throw new Error("[Manager] 이미지가 존재하지 않습니다.");
-
+  static initTexture() {
     const image = Manager.image;
+    const canvasWidth = Manager.canvasWidth;
+    const canvasHeight = Manager.canvasHeight;
+
+    if (!image) throw new Error("[Manager] 이미지가 존재하지 않습니다.");
+
     const texture = Manager.root
       .createTexture({
         size: [Manager.canvasWidth, Manager.canvasHeight],
@@ -64,6 +67,22 @@ export default class Manager {
     texture.write(image);
     Manager.imageTexture = texture;
     Manager.imageView = texture.createView(d.texture2d(d.f32));
+
+    // difference texture 초기화
+    const initDiffTexture = getFilledCanvas();
+
+    const differenceTexture = root
+      .createTexture({
+        size: [canvasWidth, canvasHeight],
+        format: "rgba8unorm" as const,
+      })
+      .$usage("sampled")
+      .$usage("storage");
+
+    differenceTexture.write(initDiffTexture);
+    const differenceView = differenceTexture.createView(d.texture2d(d.f32));
+    Manager.differenceTexture = differenceTexture;
+    Manager.differenceView = differenceView;
   }
 
   static initSizes() {
