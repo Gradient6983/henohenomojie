@@ -1,9 +1,14 @@
 import tgpu, { d, std } from "typegpu";
-import Manager from "./manager";
-import type { CharPos, Color } from "./type";
+import Manager from "../manager";
+import type { CharPos, Color } from "../type";
 
-export async function drawDiffDebug(
-  // canvas: HTMLCanvasElement,
+/**
+ * 차이를 계산하는 compute shader를 실행하는 함수
+ * @param color 색상 배열
+ * @param data 데이터 배열
+ * @returns 차이 배열
+ */
+export async function debugDifference(
   color: Color[],
   data: CharPos[],
 ) {
@@ -47,7 +52,7 @@ export async function drawDiffDebug(
   // char color를 buffer에 저장
   const charColorBuffer = root.createReadonly(d.arrayOf(d.vec3f, color.length));
   charColorBuffer.write(color.map((c) => d.vec3f(...c)));
-  const bgTextureView = Manager.bgView;
+  const bgTextureView = Manager.imageView;
   if (!bgTextureView) return;
 
   const factor = tgpu.const(d.u32, 1_000_000_000);

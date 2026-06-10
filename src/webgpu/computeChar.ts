@@ -1,12 +1,11 @@
 import { d, std } from "typegpu";
-import Manager from "./manager";
-import type { CharPos, Color } from "./type";
+import Manager from "../manager";
+import type { CharPos, Color } from "../type";
 
-export default async function drawCandidate(
+export default async function computeChar(
   charPos: CharPos,
   color: Color,
   evolutionCanvas: HTMLCanvasElement,
-  charCanvas: HTMLCanvasElement,
 ) {
   const root = Manager.root;
   const canvasWidth = Manager.canvasWidth;

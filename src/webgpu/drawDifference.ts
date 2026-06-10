@@ -1,5 +1,5 @@
 import { d, std } from "typegpu";
-import Manager from "./manager";
+import Manager from "../manager";
 
 function initDifferenceTexture(
   canvasWidth: number,
@@ -78,7 +78,7 @@ export async function drawDifference(canvas: HTMLCanvasElement) {
     fragment: ({ uv }) => {
       "use gpu";
 
-      const texColor = std.textureSample(Manager.bgView.$, sampler.$, uv);
+      const texColor = std.textureSample(Manager.imageView.$, sampler.$, uv);
       const differenceColor = std.textureSample(
         Manager.differenceView.$,
         sampler.$,

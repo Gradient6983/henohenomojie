@@ -1,33 +1,16 @@
-import sampleImage from "./assets/sample.png";
-import tgpu, { d, std } from "typegpu";
-import Manager from "./manager";
-import { loadImage } from "./util";
+import { d, std } from "typegpu";
+import Manager from "../manager";
 
-export default async function canvasDrawImage(canvas: HTMLCanvasElement) {
+export default async function drawImage(canvas: HTMLCanvasElement) {
   if (!Manager.image) return;
 
+  // 관련 변수 선언
   const root = Manager.root;
-  const image = Manager.image;
-
-  const texture = root
-    .createTexture({
-      size: [Manager.canvasWidth, Manager.canvasHeight],
-      format: "rgba8unorm" as const,
-    })
-    .$usage("sampled");
-
-  texture.write(image);
-  // texture.generateMipmaps();
-
-  const sampledView = texture.createView(d.texture2d(d.f32));
-
+  const imageView = Manager.imageView;
   const sampler = root.createSampler({
     magFilter: "nearest",
     minFilter: "nearest",
   });
-
-  Manager.bgTexture = texture;
-  Manager.bgView = sampledView;
 
   // pipeline 생성
   const pipeline = root.createRenderPipeline({
@@ -57,7 +40,7 @@ export default async function canvasDrawImage(canvas: HTMLCanvasElement) {
     fragment: ({ uv }) => {
       "use gpu";
 
-      const color = std.textureSample(sampledView.$, sampler.$, uv);
+      const color = std.textureSample(imageView.$, sampler.$, uv);
       return color;
     },
   });

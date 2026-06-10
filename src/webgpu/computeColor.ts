@@ -1,5 +1,5 @@
 import { d, std } from "typegpu";
-import Manager from "./manager";
+import Manager from "../manager";
 
 type DataList = {
   x: number;
@@ -9,12 +9,12 @@ type DataList = {
   rotation: number;
 }[];
 
-export async function execute(
+export async function computeColor(
   dataList: DataList,
   debugCanvas: HTMLCanvasElement,
   charCanvas: HTMLCanvasElement,
 ) {
-  if (!Manager.bgTexture) {
+  if (!Manager.imageTexture) {
     console.warn(
       "[compute] 배경 텍스처가 아직 없습니다. 메인 캔버스 이미지가 로드된 뒤에 compute를 눌러주세요.",
     );
@@ -39,7 +39,7 @@ export async function execute(
 
   // const candidateFitness = root.createMutable(d.arrayOf(d.f32, viewX * viewY));
 
-  const view = Manager.bgView;
+  const view = Manager.imageView;
   const viewSize = [Manager.canvasWidth, Manager.canvasHeight] as const;
 
   // char texture 생성 (diffDebug 등에서 Manager로 재사용)
