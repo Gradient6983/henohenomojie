@@ -1,12 +1,18 @@
-import { d, tgpu, type TgpuTexture, type TgpuTextureView } from "typegpu";
+import {
+  d,
+  tgpu,
+  type TgpuRoot,
+  type TgpuTexture,
+  type TgpuTextureView,
+} from "typegpu";
 
 const root = await tgpu.init();
 
 export default class Manager {
-  static readonly root = root;
+  static root: TgpuRoot = root;
   /** 원본 이미지 배경 */
-  static bgTexture: TgpuTexture;
-  static bgView: TgpuTextureView<d.WgslTexture2d<d.F32>>;
+  static imageTexture: TgpuTexture;
+  static imageView: TgpuTextureView<d.WgslTexture2d<d.F32>>;
   /** 글자 이미지 */
   static charTexture: TgpuTexture;
   static charView: TgpuTextureView<d.WgslTexture2d<d.F32>>;
@@ -21,4 +27,62 @@ export default class Manager {
   static canvasWidth: number;
   /** 캔버스 높이 */
   static canvasHeight: number;
+  /** 글자 크기 */
+  static charSize: number;
+
+  /** 이미지 로드 */
+  static async loadImage(imageLink: string) {
+    // 다른 함수에서 이 함수를 await와 쓰기 위해 Promise를 사용함
+    Manager.image = await new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => {
+        resolve(image);
+      };
+      image.onerror = (e) => {
+        console.error(
+          `[Manager] ${imageLink}의 이미지를 로드하는데 실패했습니다.`,
+          e,
+        );
+        reject(e);
+      };
+      image.src = imageLink;
+    });
+  }
+
+  /** 이미지 텍스처 초기화 */
+  static initImageTexture() {
+    if (!Manager.image)
+      throw new Error("[Manager] 이미지가 존재하지 않습니다.");
+
+    const image = Manager.image;
+    const texture = Manager.root
+      .createTexture({
+        size: [Manager.canvasWidth, Manager.canvasHeight],
+        format: "rgba8unorm" as const,
+      })
+      .$usage("sampled");
+    texture.write(image);
+    Manager.imageTexture = texture;
+    Manager.imageView = texture.createView(d.texture2d(d.f32));
+  }
+
+  static initSizes() {
+    if (!Manager.image)
+      throw new Error("[Manager] 이미지가 존재하지 않습니다.");
+
+    const dpr = Manager.dpr;
+    const image = Manager.image;
+    const canvasWidth = image.width * dpr;
+    const canvasHeight = image.height * dpr;
+    Manager.canvasWidth = canvasWidth;
+    Manager.canvasHeight = canvasHeight;
+    Manager.charSize = canvasWidth / 2;
+  }
+
+  static initCanvas(canvas: HTMLCanvasElement) {
+    if (!Manager.canvasWidth || !Manager.canvasHeight)
+      throw new Error("[Manager] 캔버스 크기가 초기화되지 않았습니다.");
+    canvas.width = Manager.canvasWidth;
+    canvas.height = Manager.canvasHeight;
+  }
 }
