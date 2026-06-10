@@ -1,22 +1,6 @@
 import { d, std } from "typegpu";
 import Manager from "../manager";
 
-function initDifferenceTexture(
-  canvasWidth: number,
-  canvasHeight: number,
-  initColor: [number, number, number, number],
-): HTMLCanvasElement | null {
-  // create image bitmap
-  const canvas = document.createElement("canvas");
-  canvas.width = canvasWidth;
-  canvas.height = canvasHeight;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return null;
-  ctx.fillStyle = `rgba(${initColor[0]}, ${initColor[1]}, ${initColor[2]}, ${initColor[3]})`;
-  ctx.fillRect(0, 0, canvasWidth, canvasHeight);
-  return canvas;
-}
-
 export async function drawDifference(canvas: HTMLCanvasElement) {
   const canvasWidth = Manager.canvasWidth;
   const canvasHeight = Manager.canvasHeight;
@@ -24,27 +8,6 @@ export async function drawDifference(canvas: HTMLCanvasElement) {
 
   const root = Manager.root;
 
-  const differenceTexture = root
-    .createTexture({
-      size: [canvasWidth, canvasHeight],
-      format: "rgba8unorm" as const,
-    })
-    .$usage("sampled")
-    .$usage("storage");
-
-  if (!Manager.differenceTexture) {
-    // 처음에는 검은 배경으로 초기화 하기
-    const initImageData = initDifferenceTexture(
-      canvasWidth,
-      canvasHeight,
-      [0, 0, 0, 255],
-    );
-    if (!initImageData) return;
-    differenceTexture.write(initImageData);
-    const differenceView = differenceTexture.createView(d.texture2d(d.f32));
-    Manager.differenceTexture = differenceTexture;
-    Manager.differenceView = differenceView;
-  }
   const sampler = root.createSampler({
     magFilter: "nearest",
     minFilter: "nearest",
