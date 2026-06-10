@@ -8,10 +8,7 @@ import type { CharPos, Color } from "../type";
  * @param data 데이터 배열
  * @returns 차이 배열
  */
-export async function debugDifference(
-  color: Color[],
-  data: CharPos[],
-) {
+export async function debugDifference(color: Color[], data: CharPos[]) {
   const root = Manager.root;
   // 1. 일단 debug canvas 텍스처를 불러옴
   const diffTex = Manager.differenceTexture.$usage("sampled").$usage("storage");
@@ -55,7 +52,7 @@ export async function debugDifference(
   const bgTextureView = Manager.imageView;
   if (!bgTextureView) return;
 
-  const factor = tgpu.const(d.u32, 1_000_000_000);
+  const factor = tgpu.const(d.f32, 1_000_000_000);
   const PI = tgpu.const(d.f32, 3.141592);
 
   const dataLength = root.createUniform(d.u32, data.length);
