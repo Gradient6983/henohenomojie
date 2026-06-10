@@ -1,16 +1,9 @@
 import { d, std } from "typegpu";
 import Manager from "../manager";
-
-type DataList = {
-  x: number;
-  y: number;
-  scale: number;
-  opacity: number;
-  rotation: number;
-}[];
+import type { CharPos } from "../type";
 
 export async function computeColor(
-  dataList: DataList,
+  charPosList: CharPos[],
   debugCanvas: HTMLCanvasElement,
   charCanvas: HTMLCanvasElement,
 ) {
@@ -34,8 +27,10 @@ export async function computeColor(
   });
 
   // storage buffer 생성
-  const candidateBuffer = root.createReadonly(d.arrayOf(data, dataList.length));
-  candidateBuffer.write(dataList);
+  const candidateBuffer = root.createReadonly(
+    d.arrayOf(data, charPosList.length),
+  );
+  candidateBuffer.write(charPosList);
 
   // const candidateFitness = root.createMutable(d.arrayOf(d.f32, viewX * viewY));
 
@@ -84,9 +79,9 @@ export async function computeColor(
   });
 
   // dataList의 길이를 uniform으로 전달
-  const dataLength = root.createUniform(d.u32, dataList.length);
+  const dataLength = root.createUniform(d.u32, charPosList.length);
   const avgColorBuffer = root.createMutable(
-    d.arrayOf(avgColor, dataList.length),
+    d.arrayOf(avgColor, charPosList.length),
   );
 
   // gpu에서 실행되는 프로그램 생성
