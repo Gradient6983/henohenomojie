@@ -19,15 +19,14 @@ export function createRandomDataList(
   }));
 }
 
-export function loadImage(src: string): Promise<HTMLImageElement> {
-  const image = new Image();
-  image.src = src;
-  return new Promise((resolve) => {
-    image.onload = () => {
-      Manager.image = image;
-      resolve(image);
-    };
-  });
+export function addRandomVariance(data: CharPos, length: number, variance: number): CharPos[] {
+  return Array.from({ length }, (_, _i) => ({
+    x: data.x + getRandomNumber({ min: -variance, max: variance }),
+    y: data.y + getRandomNumber({ min: -variance, max: variance }),
+    scale: data.scale + getRandomNumber({ min: -variance, max: variance }),
+    opacity: data.opacity + getRandomNumber({ min: -variance, max: variance }),
+    rotation: data.rotation + getRandomNumber({ min: -variance, max: variance }),
+  }));
 }
 
 export function updateCanvasSize(canvas: HTMLCanvasElement) {
