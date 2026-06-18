@@ -110,9 +110,18 @@
     const firstCandidateNum = 1000;
     const epochNum = 10;
     const topCandidateNum = 50;
+    // 글자 위치의 마지노선 값
+    const charPosClip = {
+      x: { min: 0, max: 1 },
+      y: { min: 0, max: 1 },
+      scale: { min: 0.1, max: 5 },
+      opacity: { min: 0.1, max: 1 },
+      rotation: { min: 0, max: 360 },
+    };
 
     if (!textOnImage || !charCanvas) return;
     let diffArray: number[] = [];
+    // 리스트 초기화
     let dataCandidateList: CharPos[] = createRandomDataList(
       {
         x: { min: 0, max: 1 },
@@ -122,6 +131,7 @@
         rotation: { min: 0, max: 360 },
       },
       firstCandidateNum,
+      charPosClip,
     );
 
     try {
@@ -147,7 +157,12 @@
         dataCandidateList = [];
 
         for (const data of top10) {
-          const varianceList = addRandomVariance(data, 100, 0.1);
+          const varianceList = addRandomVariance(
+            data,
+            Math.trunc(firstCandidateNum / topCandidateNum),
+            0.1,
+            charPosClip,
+          );
           dataCandidateList.push(...varianceList);
         }
       }
