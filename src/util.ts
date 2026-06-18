@@ -47,17 +47,29 @@ function getRandomNumber(range: MinMax): number {
   return Math.random() * (range.max - range.min) + range.min;
 }
 
+function clipNumber(number: number, range: MinMax): number {
+  return Math.max(range.min, Math.min(range.max, number));
+}
+
 export function createRandomDataList(
   range: CharPosRange,
   num: number,
+  clip: CharPosRange,
 ): CharPos[] {
   const { x, y, scale, opacity, rotation } = range;
+  const {
+    x: xClip,
+    y: yClip,
+    scale: scaleClip,
+    opacity: opacityClip,
+    rotation: rotationClip,
+  } = clip;
   return Array.from({ length: num }, (_, _i) => ({
-    x: getRandomNumber(x),
-    y: getRandomNumber(y),
-    scale: getRandomNumber(scale),
-    opacity: getRandomNumber(opacity),
-    rotation: getRandomNumber(rotation),
+    x: clipNumber(getRandomNumber(x), xClip),
+    y: clipNumber(getRandomNumber(y), yClip),
+    scale: clipNumber(getRandomNumber(scale), scaleClip),
+    opacity: clipNumber(getRandomNumber(opacity), opacityClip),
+    rotation: clipNumber(getRandomNumber(rotation), rotationClip),
   }));
 }
 
@@ -72,21 +84,47 @@ export function addRandomVariance(
   data: CharPos,
   length: number,
   variance: number,
+  clip: CharPosRange,
 ): CharPos[] {
+  // TODO: 주어진 원래 초기값이나, 다른 값들에 대해서 clip을 해야할 듯
+  // 안 그러면 시간이 지날수록 크기 같은 경우에는 값이 점점 커짐
+  const { x, y, scale, opacity, rotation } = data;
+  const {
+    x: xClip,
+    y: yClip,
+    scale: scaleClip,
+    opacity: opacityClip,
+    rotation: rotationClip,
+  } = clip;
+
   // 각도는 기본이 0~360도이기에 360을 곱해서 변동 정도를 계산
   const rotationVariance = 360 * variance;
   // 마찬가지로 크기는 기본이 0.1~5사이에서 움직일 예정이기에 5를 곱함
   // 이는 임시적인 수치이기에 추후에 수정될 수 있음
   const scaleVariance = 5 * variance;
   return Array.from({ length }, (_, _i) => ({
-    x: data.x + getRandomNumber({ min: -variance, max: variance }),
-    y: data.y + getRandomNumber({ min: -variance, max: variance }),
+    x:
+      x + clipNumber(getRandomNumber({ min: -variance, max: variance }), xClip),
+    y:
+      y + clipNumber(getRandomNumber({ min: -variance, max: variance }), yClip),
     scale:
-      data.scale + getRandomNumber({ min: -scaleVariance, max: scaleVariance }),
-    opacity: data.opacity + getRandomNumber({ min: -variance, max: variance }),
+      scale +
+      clipNumber(
+        getRandomNumber({ min: -scaleVariance, max: scaleVariance }),
+        scaleClip,
+      ),
+    opacity:
+      opacity +
+      clipNumber(
+        getRandomNumber({ min: -variance, max: variance }),
+        opacityClip,
+      ),
     rotation:
-      data.rotation +
-      getRandomNumber({ min: -rotationVariance, max: rotationVariance }),
+      rotation +
+      clipNumber(
+        getRandomNumber({ min: -rotationVariance, max: rotationVariance }),
+        rotationClip,
+      ),
   }));
 }
 
