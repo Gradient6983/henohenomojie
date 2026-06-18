@@ -173,6 +173,12 @@
       const diffSorted = diffWithIdx.sort((a, b) => a.value - b.value);
       diffRanks = diffSorted.map((item) => item.index);
       dataList = dataCandidateList;
+      // 최상위 랭킹의 글자 데이터를 텍스처에 그림
+      await computeChar(
+        dataList[diffRanks[0]],
+        colors[diffRanks[0]],
+        textOnlyImage!,
+      );
     } catch (e) {
       console.error("[compute] 실행 실패:", e);
     }
@@ -251,24 +257,6 @@
               </tr>
             </tbody>
           </table>
-          <div>
-            <button
-              onclick={() =>
-                computeChar(dataList[idx], colors[idx], textOnlyImage!)}
-            >
-              draw
-            </button>
-            <button
-              disabled={currentCandidateIndex <= 0}
-              onclick={() => currentCandidateIndex--}
-            >
-              prev
-            </button>
-            <button
-              disabled={currentCandidateIndex >= dataList.length - 1}
-              onclick={() => currentCandidateIndex++}>next</button
-            >
-          </div>
         {/if}
       </div>
     </div>
