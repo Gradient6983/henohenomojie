@@ -2,6 +2,13 @@ import { d, std } from "typegpu";
 import Manager from "../manager";
 import type { CharPos, Color } from "../type";
 
+/**
+ * 글자가 그려진 텍스처를 생성하고, 그 텍스처를 캔버스에 그리는 함수
+ * @param charPos 글자 위치 데이터
+ * @param color 글자 색상
+ * @param evolutionCanvas 글자를 그릴 캔버스
+ * @returns
+ */
 export default async function computeChar(
   charPos: CharPos,
   color: Color,
@@ -108,6 +115,12 @@ export default async function computeChar(
 
   program.dispatchThreads(canvasWidth, canvasHeight);
 
+  // 원래는 최상위 랭킹의 글자 데이터의 위치를 텍스처에 반영하는게 이 함수의 의도이므로
+  // 여기에서 바로 텍스처를 저장하는게 나음
+  // TODO: 디버깅용으로 캔버스에 그리는 건 추후에 다른 함수로 빼기
+  Manager.differenceTexture = tex;
+  Manager.differenceView = view;
+
   // pipeline 생성
   const pipeline = root.createRenderPipeline({
     primitive: { topology: "triangle-list" },
@@ -136,7 +149,8 @@ export default async function computeChar(
     fragment: ({ uv }) => {
       "use gpu";
 
-      const color = std.textureSample(view.$, sampler.$, uv);
+      // const color = std.textureSample(view.$, sampler.$, uv);
+      const color = std.textureSample(Manager.differenceView.$, sampler.$, uv);
       return color;
     },
   });
