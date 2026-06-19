@@ -61,8 +61,9 @@
 
   let currentChar = $state(text[0]);
   let currentIndex = $state(0);
+  let currentDisplayCharIndex = $state(0);
 
-  let nextDisabled = $derived(currentIndex >= processedText.length - 1);
+  // let nextDisabled = $derived(currentIndex >= processedText.length - 1);
 
   let dataList = $state<CharPos[]>([]);
   let colors = $state<Color[]>([]);
@@ -70,11 +71,11 @@
   let diffRanks = $state<number[]>([]);
   let currentCandidateIndex = $state(0);
 
-  function handleChar() {
-    currentIndex++;
-    currentChar = processedText[currentIndex];
-    drawText();
-  }
+  // function handleChar() {
+  //   currentIndex++;
+  //   currentChar = processedText[currentIndex];
+  //   drawText();
+  // }
 
   function drawText() {
     if (!charCanvas) return;
@@ -107,80 +108,122 @@
   });
 
   async function handleCompute() {
-    const firstCandidateNum = 1000;
-    const epochNum = 10;
-    const topCandidateNum = 50;
-    // 글자 위치의 마지노선 값
+    const candidateNum = 1000; // 후보 글자로 생성될 글자 개수수
+    const displayCharNum = 700; // 화면에 표시될 글자 개수
+    const epochNum = 10; // 한 글자당 학습 횟수
+    const topCandidateNum = 50; // 상위 랭킹의 글자 개수
     const charPosClip = {
       x: { min: 0, max: 1 },
       y: { min: 0, max: 1 },
-      scale: { min: 0.1, max: 5 },
-      opacity: { min: 0.1, max: 1 },
+      scale: { min: 0.05, max: 2 },
+      opacity: { min: 0.2, max: 1 },
       rotation: { min: 0, max: 360 },
-    };
+    }; // 글자 위치의 마지노선 값
+    const charScaleVaraince = 0.1; // 글자 크기 minmax의 변동 정도
 
     if (!textOnImage || !charCanvas) return;
-    let diffArray: number[] = [];
-    // 리스트 초기화
-    let dataCandidateList: CharPos[] = createRandomDataList(
-      {
-        x: { min: 0, max: 1 },
-        y: { min: 0, max: 1 },
-        scale: { min: 1, max: 5 },
-        opacity: { min: 0.5, max: 1 },
-        rotation: { min: 0, max: 360 },
-      },
-      firstCandidateNum,
-      charPosClip,
-    );
 
-    try {
-      // 임시로 정의한 epochNum
-      for (let i = 0; i < epochNum; i++) {
-        const sampleAvgColors = await computeColor(
-          dataCandidateList,
-          textOnImage,
-          charCanvas,
-        );
-        if (!sampleAvgColors) return;
-        colors = sampleAvgColors.map(
-          (color) => [color.r, color.g, color.b] as Color,
-        );
-        const result = await debugDifference(colors, dataCandidateList);
-        if (!result) throw new Error("debugDifference failed");
-        diffArray = result;
-
-        // 상위 10개의 결과들에서 10개의 variance를 만듦
-        // 초기 오브젝트들을 놓을 때는 variance를 크게 주다가 나중으로 가면 점점 작게 줌
-        // 0.1이라는 수치는 임시적인 것이기 때문에 추후에 결과를 보고 수정이 필요함
-        const top10 = dataCandidateList.slice(0, topCandidateNum);
-        dataCandidateList = [];
-
-        for (const data of top10) {
-          const varianceList = addRandomVariance(
-            data,
-            Math.trunc(firstCandidateNum / topCandidateNum),
-            0.1,
-            charPosClip,
-          );
-          dataCandidateList.push(...varianceList);
-        }
-      }
-      if (!diffArray) throw new Error("diffArray is undefined");
-      diffs = diffArray;
-
-      const diffWithIdx = diffArray.map((value, index) => ({ value, index }));
-      const diffSorted = diffWithIdx.sort((a, b) => a.value - b.value);
-      diffRanks = diffSorted.map((item) => item.index);
-      dataList = dataCandidateList;
-      // 최상위 랭킹의 글자 데이터를 텍스처에 그림
-      await computeChar(
-        dataList[diffRanks[0]],
-        colors[diffRanks[0]],
-        textOnlyImage!,
+    function charScaleFunc(c: number) {
+      const charMax = charPosClip.scale.max;
+      const charMin = charPosClip.scale.min;
+      // (5 + 0.2) * e^(-0.4 * c) + 0.1 + 0.2
+      return (
+        (charMax + charScaleVaraince) * Math.exp(-0.8 * c) +
+        charMin +
+        charScaleVaraince
       );
-    } catch (e) {
-      console.error("[compute] 실행 실패:", e);
+    }
+
+    for (let c = 0; c < displayCharNum; c++) {
+      // 원래는 0.01을 곱해뒀으나, 빠른 줄어듦을 확인하기 위해 0.1로 변경
+      const charCurrentScale = charScaleFunc(c * 0.02) - charScaleVaraince;
+
+      let diffArray: number[] = [];
+      // 리스트 초기화
+      let dataCandidateList: CharPos[] = createRandomDataList(
+        {
+          x: { min: 0, max: 1 },
+          y: { min: 0, max: 1 },
+          scale: {
+            min: charCurrentScale - charScaleVaraince,
+            max: charCurrentScale + charScaleVaraince,
+          },
+          opacity: { min: 0.5, max: 1 },
+          rotation: { min: 0, max: 360 },
+        },
+        candidateNum,
+        charPosClip,
+      );
+
+      try {
+        // 임시로 정의한 epochNum
+        for (let i = 0; i < epochNum; i++) {
+          const sampleAvgColors = await computeColor(
+            dataCandidateList,
+            textOnImage,
+            charCanvas,
+          );
+          if (!sampleAvgColors) return;
+          colors = sampleAvgColors.map(
+            (color) => [color.r, color.g, color.b] as Color,
+          );
+          const result = await debugDifference(colors, dataCandidateList);
+          if (!result) throw new Error("debugDifference failed");
+          diffArray = result;
+
+          // 차이를 기준으로 오름차순으로 정렬
+          const diffWithIdx = diffArray.map((value, index) => ({
+            value,
+            index,
+          }));
+          const diffSorted = diffWithIdx.sort((a, b) => a.value - b.value);
+          diffRanks = diffSorted.map((item) => item.index);
+          dataList = dataCandidateList;
+
+          // 상위 n개의 결과를 배열에 저장함
+          let topN = [];
+          for (let i = 0; i < topCandidateNum; i++) {
+            topN.push(dataCandidateList[diffRanks[i]]);
+          }
+          dataCandidateList = [];
+
+          // 상위 n개의 결과에 대해서 variance를 줘서 새로운 데이터를 생성함
+          // TODO: 초기 오브젝트들에서는 variance를 크게 주다가 나중으로 가면 점점 작게 줌
+          // 0.01이라는 수치는 임시적인 것이기 때문에 추후에 결과를 보고 수정이 필요함
+          for (const data of topN) {
+            const varianceList = addRandomVariance(
+              data,
+              Math.trunc(candidateNum / topCandidateNum),
+              0.01,
+              charPosClip,
+            );
+            dataCandidateList.push(...varianceList);
+          }
+        }
+        if (!diffArray) throw new Error("diffArray is undefined");
+        diffs = diffArray;
+
+        // 디버깅 용으로 각 글자당 최상위 랭킹의 글자 데이터를 텍스처에 그림
+        await computeChar(
+          dataList[diffRanks[0]],
+          colors[diffRanks[0]],
+          textOnlyImage!,
+        );
+
+        // 디버깅 용으로 현재 difference texture와 이미지의 차이도 다시 그림
+        await drawDifference(imageDifference!);
+      } catch (e) {
+        console.error("[compute] 실행 실패:", e);
+      }
+
+      if (currentIndex < processedText.length - 1) {
+        currentIndex++;
+      } else {
+        currentIndex = 0;
+      }
+      currentChar = processedText[currentIndex];
+      drawText();
+      currentDisplayCharIndex++;
     }
   }
 </script>
@@ -205,15 +248,14 @@
         height={charCanvasSize}
         class="char-canvas"
       ></canvas>
+      <button onclick={handleCompute}>compute</button>
+      <!-- <button onclick={() => handleChar()} disabled={nextDisabled}>next</button>
+      <button>reset</button> -->
     </div>
 
     <div>
-      <button onclick={handleCompute}>compute</button>
-      <button onclick={() => handleChar()} disabled={nextDisabled}>next</button>
-      <button>reset</button>
-
       <div>
-        <p>Text</p>
+        <p>Text: {currentDisplayCharIndex}</p>
         <pre>{text}</pre>
         <p>Currnet: {currentChar}</p>
         <p>Index: {currentIndex}</p>
