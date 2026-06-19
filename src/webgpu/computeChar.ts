@@ -46,12 +46,12 @@ export default async function computeChar(
   const tex = root
     .createTexture({
       size: [canvasWidth, canvasHeight],
-      format: "rgba8unorm" as const,
+      format: "rgba16float" as const,
     })
     .$usage("sampled")
     .$usage("storage");
   const view = tex.createView(d.texture2d(d.f32));
-  const sampledView = tex.createView(d.textureStorage2d("rgba8unorm"));
+  const sampledView = tex.createView(d.textureStorage2d("rgba16float"));
 
   const program = root.createGuardedComputePipeline((xIdx, yIdx) => {
     "use gpu";
@@ -110,6 +110,10 @@ export default async function computeChar(
         diffTexColor.a + charTex.a * charPos.opacity,
       );
       std.textureStore(sampledView.$, xy, blended);
+
+      // 히트맵 텍스처의 값도 업데이트해서 해당 위치에 글자가 한번 그려진적 있다는 사실을 업데이트해주기
+      // 이때 히트맵 텍스처는 rgb값을 업데이트함
+      // TODO: 업데이트에는 한계가 있으니 추가하는 최소값을 조절하거나, 아니면 정규화 같은 방식을 생각해봐야할듯?
     }
   });
 

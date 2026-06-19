@@ -41,7 +41,7 @@ export async function computeColor(
   const charTexture = root
     .createTexture({
       size: [charCanvas.width, charCanvas.height],
-      format: "rgba8unorm" as const,
+      format: "rgba16float" as const,
     })
     .$usage("sampled")
     .$usage("storage");
@@ -56,13 +56,13 @@ export async function computeColor(
   const editedImage = root
     .createTexture({
       size: viewSize,
-      format: "rgba8unorm" as const,
+      format: "rgba16float" as const,
     })
     .$usage("sampled")
     .$usage("storage");
 
   const editedImageView = editedImage.createView(
-    d.textureStorage2d("rgba8unorm"),
+    d.textureStorage2d("rgba16float"),
   );
   const editedImageSampledView = editedImage.createView(d.texture2d(d.f32));
 
@@ -137,15 +137,19 @@ export async function computeColor(
         const charXy = d.vec2u(charX, charY);
         const charTex = std.textureLoad(charView.$, charXy, 0);
         const charAlpha = charTex.a * candidate.opacity;
+        // 여기에서는 디버깅 용으로 어디에 글자가 있는지 보이게 할 거기 때문에
+        // 글자와 배경의 색을 섞어 줌
         const blendedRgb = std.mix(tex.rgb, charTex.rgb, charAlpha);
         const blended = d.vec4f(
           blendedRgb,
           tex.a + charTex.a * candidate.opacity,
         );
         if (charAlpha > 0.01) {
-          std.atomicAdd(avgColorBuffer.$[i].r, d.u32(blendedRgb.r * 255));
-          std.atomicAdd(avgColorBuffer.$[i].g, d.u32(blendedRgb.g * 255));
-          std.atomicAdd(avgColorBuffer.$[i].b, d.u32(blendedRgb.b * 255));
+          // 실제로 더해주는 값은 그냥 배경의 색을 더해줘야 함
+          // TODO: 글자의 알파값은 반영이 안된 색상이기 때문에 나중에 보정해주기
+          std.atomicAdd(avgColorBuffer.$[i].r, d.u32(tex.rgb.r * 255));
+          std.atomicAdd(avgColorBuffer.$[i].g, d.u32(tex.rgb.g * 255));
+          std.atomicAdd(avgColorBuffer.$[i].b, d.u32(tex.rgb.b * 255));
           std.atomicAdd(avgColorBuffer.$[i].count, 1);
         }
         std.textureStore(editedImageView.$, xy, blended);
