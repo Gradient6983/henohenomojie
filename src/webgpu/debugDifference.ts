@@ -52,10 +52,17 @@ export async function debugDifference(color: Color[], data: CharPos[]) {
   const bgTextureView = Manager.imageView;
   if (!bgTextureView) return;
 
-  const factor = tgpu.const(d.f32, 1_000_000_000);
+  // 2의 n승 중에서 float16에 저장할 수 있는 값
+  // 1024 * 1024 = 1048576
+  const factor = tgpu.const(d.f32, Math.pow(2, 20) - 1);
   const PI = tgpu.const(d.f32, 3.141592);
 
   const dataLength = root.createUniform(d.u32, data.length);
+
+  // heatmap storage용 view
+  // const heatmapSampledView = Manager.heatmapTexture.createView(
+  //   d.textureStorage2d("r32float"),
+  // );
 
   // compute shader 생성
   const program = root.createGuardedComputePipeline((xIdx, yIdx) => {
@@ -105,6 +112,10 @@ export async function debugDifference(color: Color[], data: CharPos[]) {
       const xCondition = pixelPos.x >= charMinX && pixelPos.x <= charMaxX;
       const yCondition = pixelPos.y >= charMinY && pixelPos.y <= charMaxY;
 
+      // 글자를 놓기 이전의 차이를 계산
+      const prevDist = std.distance(bgTex.rgb, diffTex.rgb);
+      const prevT = prevDist;
+
       // difference texture의 픽셀 색상상
       let diffColor = diffTex.rgb;
       // 만약 char tex의 픽셀이 겹치는 경우, 해당 픽셀의 값을 diffColor위에 덧그림
@@ -117,17 +128,25 @@ export async function debugDifference(color: Color[], data: CharPos[]) {
         // char color buffer를 가져옴
         const charColor = charColorBuffer.$[i];
         diffColor = std.mix(diffColor, charColor, charAlpha);
+
+        // 픽셀이 존재한다면 heatmap에도 값을 더해줌
+        // TODO: 0.001이라는 임시의 값이기에 나중에 업데이트해주기
+        const heatmapColor = std.textureLoad(Manager.heatmapView.$, xy, 0);
+        // std.textureStore(Manager.heatmapView.$, xy, heatmapColor.r + 0.001);
       }
 
-      const dist = std.distance(bgTex.rgb, diffColor);
+      const currDist = std.distance(bgTex.rgb, diffColor);
       // 거리를 0~1 사이의 값으로 변환
-      const t = dist / 1.732;
+      const currT = currDist;
+      // 현재 차이와 이전 차이의 차이를 계산
+      // 임시로 1000을 곱했는데 조금 더 좋은 차이를 계산하는게 필요함
+      const t = currT - prevT;
       // 해당 값을 buffer에 저장
       // 저장할때 texture dimension값으로 나눠 주는게 계산에 편하려나?
       // 아니면 나중에 빼는게 좋으려나? 일단은 texture dimension값으로 나눠줌
-      const pixelCount = bgTexDimension.x * bgTexDimension.y;
+      // const pixelCount = bgTexDimension.x * bgTexDimension.y;
       // atomidAdd는 현재 정수만 계산할 수 있기에 소수점 9째 자리까지 정수로 변환해서 저장
-      std.atomicAdd(diffBuffer.$[i], d.u32((t / pixelCount) * factor.$));
+      std.atomicAdd(diffBuffer.$[i], d.u32(t * factor.$));
     }
   });
 
