@@ -25,21 +25,21 @@ export function getFilledCanvas(color?: Color): HTMLCanvasElement {
     b = 0;
 
   if (!color) {
-  ctx.drawImage(image, 0, 0, w, h);
-  const imageData = ctx?.getImageData(0, 0, w, h);
-  if (!imageData)
-    throw new Error("[getAverageImageColor] No image data from canvas");
+    ctx.drawImage(image, 0, 0, w, h);
+    const imageData = ctx?.getImageData(0, 0, w, h);
+    if (!imageData)
+      throw new Error("[getAverageImageColor] No image data from canvas");
 
-  for (let i = 0; i < w * h; i += 4) {
-    r += imageData.data[i];
-    g += imageData.data[i + 1];
-    b += imageData.data[i + 2];
-  }
+    for (let i = 0; i < w * h; i += 4) {
+      r += imageData.data[i];
+      g += imageData.data[i + 1];
+      b += imageData.data[i + 2];
+    }
 
-  const count = w * h;
-  r = r / count;
-  g = g / count;
-  b = b / count;
+    const count = w * h;
+    r = r / count;
+    g = g / count;
+    b = b / count;
   } else {
     r = color[0];
     g = color[1];
@@ -111,28 +111,27 @@ export function addRandomVariance(
   // 이는 임시적인 수치이기에 추후에 수정될 수 있음
   const scaleVariance = 5 * variance;
   return Array.from({ length }, (_, _i) => ({
-    x:
-      x + clipNumber(getRandomNumber({ min: -variance, max: variance }), xClip),
-    y:
-      y + clipNumber(getRandomNumber({ min: -variance, max: variance }), yClip),
-    scale:
-      scale +
-      clipNumber(
-        getRandomNumber({ min: -scaleVariance, max: scaleVariance }),
-        scaleClip,
-      ),
-    opacity:
-      opacity +
-      clipNumber(
-        getRandomNumber({ min: -variance, max: variance }),
-        opacityClip,
-      ),
-    rotation:
+    x: clipNumber(
+      x + getRandomNumber({ min: -variance, max: variance }),
+      xClip,
+    ),
+    y: clipNumber(
+      y + getRandomNumber({ min: -variance, max: variance }),
+      yClip,
+    ),
+    scale: clipNumber(
+      scale + getRandomNumber({ min: -scaleVariance, max: scaleVariance }),
+      scaleClip,
+    ),
+    opacity: clipNumber(
+      opacity + getRandomNumber({ min: -variance, max: variance }),
+      opacityClip,
+    ),
+    rotation: clipNumber(
       rotation +
-      clipNumber(
         getRandomNumber({ min: -rotationVariance, max: rotationVariance }),
-        rotationClip,
-      ),
+      rotationClip,
+    ),
   }));
 }
 
