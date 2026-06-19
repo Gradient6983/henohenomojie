@@ -2,10 +2,11 @@ import Manager from "./manager";
 import type { MinMax, CharPos, CharPosRange, Color } from "./type";
 
 /**
- * 이미지의 평균 색상으로 배경을 채운 canvas를 반환하는 함수수
+ * 이미지의 평균 색상으로 배경을 채운 canvas를 반환하는 함수
+ * @param color 배경을 채울 때 사용할 색상. 없으면 이미지의 평균 색상으로 배경을 채움
  * @returns 배경을 채울 때 사용할 canvas
  */
-export function getFilledCanvas(): HTMLCanvasElement {
+export function getFilledCanvas(color?: Color): HTMLCanvasElement {
   const image = Manager.image;
   const w = Manager.canvasWidth;
   const h = Manager.canvasHeight;
@@ -19,14 +20,16 @@ export function getFilledCanvas(): HTMLCanvasElement {
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("[getAverageImageColor] No context from canvas");
 
+  let r = 0,
+    g = 0,
+    b = 0;
+
+  if (!color) {
   ctx.drawImage(image, 0, 0, w, h);
   const imageData = ctx?.getImageData(0, 0, w, h);
   if (!imageData)
     throw new Error("[getAverageImageColor] No image data from canvas");
 
-  let r = 0,
-    g = 0,
-    b = 0;
   for (let i = 0; i < w * h; i += 4) {
     r += imageData.data[i];
     g += imageData.data[i + 1];
@@ -37,6 +40,11 @@ export function getFilledCanvas(): HTMLCanvasElement {
   r = r / count;
   g = g / count;
   b = b / count;
+  } else {
+    r = color[0];
+    g = color[1];
+    b = color[2];
+  }
 
   ctx.fillStyle = `rgba(${r}, ${g}, ${b}, 1)`;
   ctx.fillRect(0, 0, w, h);
