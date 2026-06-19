@@ -1,47 +1,20 @@
-# Svelte + TS + Vite
+# 프로젝트의 의도
 
-This template should help get you started developing with Svelte and TypeScript in Vite.
+글자들을 순서대로 적당한 크기와 색깔로 배치하면서 최종적으로는 글자들로 그림을 그려내는게 목표
 
-## Recommended IDE Setup
+# 실행 과정
 
-[VS Code](https://code.visualstudio.com/) + [Svelte](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode).
+1. 적당한 개수의 글자들을 캔버스에 표시함
+2. 처음 생성한 글자는 크게 그리고 그 후에 생성하는 글자들의 크기는 점점 줄여서 배경 > 디테일 순으로 글자들을 구현하는 게 목표임
+3. 처음에 랜덤한 포지션으로 여러 후보를 생성, 그리고 그 후보를 빈 텍스처에 올린 다음, 그 텍스처를 이미지와 비교해서 점수를 기록함. 이때 글자의 색상은 글자가 겹쳐있는 이미지의 픽셀들의 평군 색상으로 자동으로 결정
+4. 그 후 후보들에서 상위 n개의 후보를 추출, 거기에서 위치나 크기 등 여러 값들을 조금씩 variance를 줘서 변경
+5. 그리고 또 상위 n개의 후보를 검출하는 과정을 여러번 반복, 결과적으로 최적의 위치와 크기의 글자를 선정
+6. 해당 글자는 아까 생성했던 빈 텍스처에 그대로 저장. 그래서 다음 글자를 올릴 때는 그 글자가 올라간 캔버스에 새로운 글자를 올리면서 다시 이미지와 비교를 진행하게 함
 
-## Need an official Svelte framework?
+# 발견한 문제들
 
-Check out [SvelteKit](https://github.com/sveltejs/kit#readme), which is also powered by Vite. Deploy anywhere with its serverless-first approach and adapt to various platforms, with out of the box support for TypeScript, SCSS, and Less, and easily-added support for mdsvex, GraphQL, PostCSS, Tailwind CSS, and more.
-
-## Technical considerations
-
-**Why use this over SvelteKit?**
-
-- It brings its own routing solution which might not be preferable for some users.
-- It is first and foremost a framework that just happens to use Vite under the hood, not a Vite app.
-
-This template contains as little as possible to get started with Vite + TypeScript + Svelte, while taking into account the developer experience with regards to HMR and intellisense. It demonstrates capabilities on par with the other `create-vite` templates and is a good starting point for beginners dipping their toes into a Vite + Svelte project.
-
-Should you later need the extended capabilities and extensibility provided by SvelteKit, the template has been structured similarly to SvelteKit so that it is easy to migrate.
-
-**Why `global.d.ts` instead of `compilerOptions.types` inside `jsconfig.json` or `tsconfig.json`?**
-
-Setting `compilerOptions.types` shuts out all other types not explicitly listed in the configuration. Using triple-slash references keeps the default TypeScript setting of accepting type information from the entire workspace, while also adding `svelte` and `vite/client` type information.
-
-**Why include `.vscode/extensions.json`?**
-
-Other templates indirectly recommend extensions via the README, but this file allows VS Code to prompt the user to install the recommended extension upon opening the project.
-
-**Why enable `allowJs` in the TS template?**
-
-While `allowJs: false` would indeed prevent the use of `.js` files in the project, it does not prevent the use of JavaScript syntax in `.svelte` files. In addition, it would force `checkJs: false`, bringing the worst of both worlds: not being able to guarantee the entire codebase is TypeScript, and also having worse typechecking for the existing JavaScript. In addition, there are valid use cases in which a mixed codebase may be relevant.
-
-**Why is HMR not preserving my local component state?**
-
-HMR state preservation comes with a number of gotchas! It has been disabled by default in both `svelte-hmr` and `@sveltejs/vite-plugin-svelte` due to its often surprising behavior. You can read the details [here](https://github.com/rixo/svelte-hmr#svelte-hmr).
-
-If you have state that's important to retain within a component, consider creating an external store which would not be replaced by HMR.
-
-```ts
-// store.ts
-// An extremely simple external store
-import { writable } from 'svelte/store'
-export default writable(0)
-```
+- 점수 산정방식의 문제
+  - 단순히 픽셀간의 유사성을 비교한다면, 점수를 받기 쉬운 같은 위치에 글자가 계속 새로 생기는 문제점이 있음
+  - 이를 방지 하기 위한 같은 위치에 생긴다면 감점을 준다던가 하는 요소가 필요함, 아니면 많이 표시되지 않은 위치에 글자를 생성했을 경우 가산점을 준다거나
+- 글자 생성의 문제
+  - 생성되는 글자들이 너무 흰색 계열임. 어두운 구역에 생성되는 글자들도 흰색 계열로 생겨서 문제파악이 필요해보임
