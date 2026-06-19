@@ -20,6 +20,9 @@ export default class Manager {
   /** 차이 이미지 */
   static differenceTexture: TgpuTexture;
   static differenceView: TgpuTextureView<d.WgslTexture2d<d.F32>>;
+  /** 히트맵 이미지 */
+  static heatmapTexture: TgpuTexture;
+  static heatmapView: TgpuTextureView<d.WgslTexture2d<d.F32>>;
   /** 원본 이미지 */
   static image: HTMLImageElement;
   /** 디바이스 픽셀 비율 */
@@ -61,7 +64,7 @@ export default class Manager {
     const texture = Manager.root
       .createTexture({
         size: [Manager.canvasWidth, Manager.canvasHeight],
-        format: "rgba8unorm" as const,
+        format: "rgba16float" as const,
       })
       .$usage("sampled");
     texture.write(image);
@@ -74,7 +77,7 @@ export default class Manager {
     const differenceTexture = root
       .createTexture({
         size: [canvasWidth, canvasHeight],
-        format: "rgba8unorm" as const,
+        format: "rgba16float" as const,
       })
       .$usage("sampled")
       .$usage("storage");
@@ -83,6 +86,18 @@ export default class Manager {
     const differenceView = differenceTexture.createView(d.texture2d(d.f32));
     Manager.differenceTexture = differenceTexture;
     Manager.differenceView = differenceView;
+
+    const heatmapTexture = root
+      .createTexture({
+        size: [canvasWidth, canvasHeight],
+        format: "r32float" as const,
+      })
+      .$usage("sampled")
+      .$usage("storage");
+    heatmapTexture.write(getFilledCanvas([0, 0, 0]));
+    const heatmapView = heatmapTexture.createView(d.texture2d(d.f32));
+    Manager.heatmapTexture = heatmapTexture;
+    Manager.heatmapView = heatmapView;
   }
 
   static initSizes() {
