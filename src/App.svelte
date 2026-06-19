@@ -115,7 +115,7 @@
     const charPosClip = {
       x: { min: 0, max: 1 },
       y: { min: 0, max: 1 },
-      scale: { min: 0.05, max: 2 },
+      scale: { min: 0.01, max: 2 },
       opacity: { min: 0.2, max: 1 },
       rotation: { min: 0, max: 360 },
     }; // 글자 위치의 마지노선 값
@@ -290,7 +290,7 @@
               </tr>
               <tr>
                 <th> diff </th>
-                <td>{diffs[idx] / 1_000_000_000}</td>
+                <td>{diffs[idx]}</td>
               </tr>
               <tr>
                 <th> color </th>

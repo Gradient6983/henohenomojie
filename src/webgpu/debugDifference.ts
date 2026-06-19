@@ -31,6 +31,9 @@ export async function debugDifference(color: Color[], data: CharPos[]) {
   const diffBuffer = root.createMutable(
     d.arrayOf(d.atomic(d.u32), data.length),
   );
+  const activePixelBuffer = root.createMutable(
+    d.arrayOf(d.atomic(d.u32), data.length),
+  );
   const posStruct = d.struct({
     x: d.f32,
     y: d.f32,
@@ -52,10 +55,9 @@ export async function debugDifference(color: Color[], data: CharPos[]) {
   const bgTextureView = Manager.imageView;
   if (!bgTextureView) return;
 
-  const factor = tgpu.const(d.f32, 1_000_000_000);
   const PI = tgpu.const(d.f32, 3.141592);
 
-  const dataLength = root.createUniform(d.u32, data.length);
+  const dataLength = root.createUniform(d.i32, data.length);
 
   // compute shader 생성
   const program = root.createGuardedComputePipeline((xIdx, yIdx) => {
@@ -105,40 +107,94 @@ export async function debugDifference(color: Color[], data: CharPos[]) {
       const xCondition = pixelPos.x >= charMinX && pixelPos.x <= charMaxX;
       const yCondition = pixelPos.y >= charMinY && pixelPos.y <= charMaxY;
 
-      // difference texture의 픽셀 색상상
-      let diffColor = diffTex.rgb;
-      // 만약 char tex의 픽셀이 겹치는 경우, 해당 픽셀의 값을 diffColor위에 덧그림
-      if (xCondition && yCondition) {
-        const charX = d.u32(pixelPos.x - charMinX);
-        const charY = d.u32(pixelPos.y - charMinY);
-        const charXy = d.vec2u(charX, charY);
-        const charTex = std.textureLoad(charView.$, charXy, 0);
-        const charAlpha = charTex.a * candidate.opacity;
-        // char color buffer를 가져옴
-        const charColor = charColorBuffer.$[i];
-        diffColor = std.mix(diffColor, charColor, charAlpha);
-      }
+      const scaleThreshold = 0.8; // TODO: 임시값
+      if (candidate.scale > scaleThreshold) {
+        // 만약 scale이 특정 크기보다 크면 그냥 이미지 전체에 대해서 비교 진행
+        let evalColor = diffTex.rgb;
+        if (xCondition && yCondition) {
+          const charX = d.u32(pixelPos.x - charMinX);
+          const charY = d.u32(pixelPos.y - charMinY);
+          const charXy = d.vec2u(charX, charY);
+          const charTex = std.textureLoad(charView.$, charXy, 0);
+          const charAlpha = charTex.a * candidate.opacity;
+          const alphaThreshold = 0.01; // TODO: 임시값
+          if (charAlpha > alphaThreshold) {
+            const charColor = charColorBuffer.$[i];
+            evalColor = std.mix(evalColor, charColor, charAlpha);
+          }
+        }
 
-      const dist = std.distance(bgTex.rgb, diffColor);
-      // 거리를 0~1 사이의 값으로 변환
-      const t = dist / 1.732;
-      // 해당 값을 buffer에 저장
-      // 저장할때 texture dimension값으로 나눠 주는게 계산에 편하려나?
-      // 아니면 나중에 빼는게 좋으려나? 일단은 texture dimension값으로 나눠줌
-      const pixelCount = bgTexDimension.x * bgTexDimension.y;
-      // atomidAdd는 현재 정수만 계산할 수 있기에 소수점 9째 자리까지 정수로 변환해서 저장
-      std.atomicAdd(diffBuffer.$[i], d.u32((t / pixelCount) * factor.$));
+        const currDist = std.distance(bgTex.rgb, evalColor);
+        const normDist = currDist / 1.732;
+
+        // 2의 n승을 factor로 하는 게 오류 방지에 좋음
+        const factor = d.f32(4096); // TODO: 임시값
+        std.atomicAdd(diffBuffer.$[i], d.u32(normDist * factor));
+        std.atomicAdd(activePixelBuffer.$[i], factor);
+      } else {
+        // 그렇지 않은 경우 char texture의 픽셀이 겹치는 경우에 대해서만 비교 진행
+        if (xCondition && yCondition) {
+          const charX = d.u32(pixelPos.x - charMinX);
+          const charY = d.u32(pixelPos.y - charMinY);
+          const charXy = d.vec2u(charX, charY);
+          const charTex = std.textureLoad(charView.$, charXy, 0);
+          const charAlpha = charTex.a * candidate.opacity;
+          const alphaThreshold = 0.01; // TODO: 임시값
+          const scaleThreshold = 0.8; // TODO: 임시값
+
+          // char color buffer를 가져옴
+          const charColor = charColorBuffer.$[i];
+          const prevColor = diffTex.rgb;
+          const currColor = std.mix(prevColor, charColor, charAlpha);
+          const currDist = std.distance(bgTex.rgb, currColor);
+          // 거리를 0~1 사이의 값으로 변환
+          const normDist = currDist / 1.732;
+
+          // 2의 n승을 factor로 하는 게 오류 방지에 좋음
+          const factor = d.f32(4096); // TODO: 임시값
+
+          if (charAlpha > alphaThreshold) {
+            // 유효한 픽셀수를 저장한 다음에 해당 픽셀에 대해서만 계산하도록 변경
+
+            const prevDist = std.distance(bgTex.rgb, prevColor);
+
+            const epsilon = 1e-6; // 0 나누기를 방지한 상수
+            // 현재 새 텍스트를 반영했을때 이전에 비해서 얼마나 달라졌는지를 측정함
+            const distDiff =
+              std.abs(currDist - prevDist) / (prevDist + epsilon);
+            const k = 8.0; // TODO: 임시값
+            const novelty = 1 - std.exp(-k * distDiff); // novelty 정규화
+
+            const weight = charAlpha;
+            // 해당 값을 buffer에 저장
+            // 저장할때 texture dimension값으로 나눠 주는게 계산에 편하려나?
+            // 아니면 나중에 빼는게 좋으려나? 일단은 texture dimension값으로 나눠줌
+            // const pixelCount = bgTexDimension.x * bgTexDimension.y;
+            // atomidAdd는 현재 정수만 계산할 수 있기에 정수로 변환
+
+            // novelty를 얼마나 반영할 것인지에 대한 값
+            const lambda = 1.0; // TODO: 임시값
+            const score = normDist * (1 + lambda * (1 - novelty)); // 점수가 클수록 유리함
+            // const score = normDist * novelty; // 점수가 작을수록 유리함 (맞는지 모르겠음)
+            std.atomicAdd(diffBuffer.$[i], d.u32(score * weight * factor));
+            std.atomicAdd(activePixelBuffer.$[i], d.u32(weight * factor));
+          }
+        }
+      }
     }
   });
 
   program.dispatchThreads(Manager.canvasWidth, Manager.canvasHeight);
 
   const diffArray = await diffBuffer.read();
+  const activePixelArray = await activePixelBuffer.read();
+  const invalidPenalty = 1e9; // active pixel이 0인 경우 큰 값을 줘서 무효처리
 
-  // 다시 factor로 나눠주기 (소수점 9째 자리까지 정수로 변환해서 저장했기에)
-  for (let diff of diffArray) {
-    diff /= factor.$;
-  }
+  const averagedDiffArray = diffArray.map((diff, index) => {
+    const active = activePixelArray[index];
+    if (active === 0) return invalidPenalty;
+    return diff / activePixelArray[index];
+  });
 
-  return diffArray;
+  return averagedDiffArray;
 }

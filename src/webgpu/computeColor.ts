@@ -143,9 +143,9 @@ export async function computeColor(
           tex.a + charTex.a * candidate.opacity,
         );
         if (charAlpha > 0.01) {
-          std.atomicAdd(avgColorBuffer.$[i].r, d.u32(blendedRgb.r * 255));
-          std.atomicAdd(avgColorBuffer.$[i].g, d.u32(blendedRgb.g * 255));
-          std.atomicAdd(avgColorBuffer.$[i].b, d.u32(blendedRgb.b * 255));
+          std.atomicAdd(avgColorBuffer.$[i].r, d.u32(tex.rgb.r * 255));
+          std.atomicAdd(avgColorBuffer.$[i].g, d.u32(tex.rgb.g * 255));
+          std.atomicAdd(avgColorBuffer.$[i].b, d.u32(tex.rgb.b * 255));
           std.atomicAdd(avgColorBuffer.$[i].count, 1);
         }
         std.textureStore(editedImageView.$, xy, blended);
