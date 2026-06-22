@@ -107,7 +107,7 @@ export async function debugDifference(color: Color[], data: CharPos[]) {
       const xCondition = pixelPos.x >= charMinX && pixelPos.x <= charMaxX;
       const yCondition = pixelPos.y >= charMinY && pixelPos.y <= charMaxY;
 
-      const scaleThreshold = 0.8; // TODO: 임시값
+      const scaleThreshold = 0.0; // 0.8; // TODO: 임시값
       if (candidate.scale > scaleThreshold) {
         // 만약 scale이 특정 크기보다 크면 그냥 이미지 전체에 대해서 비교 진행
         let evalColor = diffTex.rgb;
@@ -127,10 +127,18 @@ export async function debugDifference(color: Color[], data: CharPos[]) {
         const currDist = std.distance(bgTex.rgb, evalColor);
         const normDist = currDist / 1.732;
 
+        let score = normDist;
+        const stampTex = std.textureLoad(Manager.stampView.$, xy, 0);
+        const stamp = stampTex.r;
+
+        let occK = 0.2;
+        score = score * (1 + occK * stamp);
+
         // 2의 n승을 factor로 하는 게 오류 방지에 좋음
         const factor = d.f32(4096); // TODO: 임시값
-        std.atomicAdd(diffBuffer.$[i], d.u32(normDist * factor));
-        std.atomicAdd(activePixelBuffer.$[i], factor);
+        // std.atomicAdd(diffBuffer.$[i], d.u32(normDist * factor));
+        std.atomicAdd(diffBuffer.$[i], d.u32(score * factor));
+        std.atomicAdd(activePixelBuffer.$[i], d.u32(1 * factor));
       } else {
         // 그렇지 않은 경우 char texture의 픽셀이 겹치는 경우에 대해서만 비교 진행
         if (xCondition && yCondition) {
@@ -174,8 +182,10 @@ export async function debugDifference(color: Color[], data: CharPos[]) {
 
             // novelty를 얼마나 반영할 것인지에 대한 값
             const lambda = 1.0; // TODO: 임시값
-            const score = normDist * (1 + lambda * (1 - novelty)); // 점수가 클수록 유리함
-            // const score = normDist * novelty; // 점수가 작을수록 유리함 (맞는지 모르겠음)
+            let score = normDist * (1 + lambda * (1 - novelty)); // 점수가 클수록 유리함
+            const stamp = std.textureLoad(Manager.stampView.$, xy, 0).r;
+            const occK = 1.0;
+            score = score * (1 + occK * stamp);
             std.atomicAdd(diffBuffer.$[i], d.u32(score * weight * factor));
             std.atomicAdd(activePixelBuffer.$[i], d.u32(weight * factor));
           }
