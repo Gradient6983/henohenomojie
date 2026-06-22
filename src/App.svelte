@@ -109,18 +109,19 @@
   });
 
   async function handleCompute() {
-    const candidateNum = 1000; // 후보 글자로 생성될 글자 개수수
-    const displayCharNum = 700; // 화면에 표시될 글자 개수
+    const candidateNum = 2000; // 후보 글자로 생성될 글자 개수
+    const displayCharNum = processedText.length; // 화면에 표시될 글자 개수
     const epochNum = 10; // 한 글자당 학습 횟수
     const topCandidateNum = 50; // 상위 랭킹의 글자 개수
     const charPosClip = {
       x: { min: 0, max: 1 },
       y: { min: 0, max: 1 },
-      scale: { min: 0.01, max: 2 },
+      scale: { min: 0.005, max: 1.5 }, // 0.01~2 (1920 1080 기준)
       opacity: { min: 0.2, max: 1 },
       rotation: { min: 0, max: 360 },
     }; // 글자 위치의 마지노선 값
-    const charScaleVaraince = 0.1; // 글자 크기 minmax의 변동 정도
+    const charScaleVaraince = 0.01; // 글자 크기 minmax의 변동 정도 0.1
+    const ohterVariance = 0.01; // 글자 크기 외의 변동 정도 0.01
 
     if (!textOnImage || !charCanvas) return;
 
@@ -129,7 +130,7 @@
       const charMin = charPosClip.scale.min;
       // (5 + 0.2) * e^(-0.4 * c) + 0.1 + 0.2
       return (
-        (charMax + charScaleVaraince) * Math.exp(-0.8 * c) +
+        (charMax + charScaleVaraince) * Math.exp(-1.5 * c) +
         charMin +
         charScaleVaraince
       );
@@ -138,6 +139,9 @@
     for (let c = 0; c < displayCharNum; c++) {
       // 원래는 0.01을 곱해뒀으나, 빠른 줄어듦을 확인하기 위해 0.1로 변경
       const charCurrentScale = charScaleFunc(c * 0.02) - charScaleVaraince;
+      // 크기가 줄어들수록 점점 후보가 늘어나게 하기,
+      // 크기 값은 clip에설정해둔 max를 기준으로 계산하게 함
+      // 단 너무 많이 늘어나면 안됨, max는 5000개
 
       let diffArray: number[] = [];
       // 리스트 초기화
@@ -195,7 +199,7 @@
             const varianceList = addRandomVariance(
               data,
               Math.trunc(candidateNum / topCandidateNum),
-              0.01,
+              ohterVariance,
               charPosClip,
             );
             dataCandidateList.push(...varianceList);
