@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import sampleImage from "./assets/sample.png";
+  import sampleImage from "./assets/twinfield.jpg";
   import Manager from "./manager";
   import type { CharPos, Color } from "./type";
   import { addRandomVariance, createRandomDataList } from "./util";
@@ -9,6 +9,7 @@
   import { debugDifference } from "./webgpu/debugDifference";
   import { drawDifference } from "./webgpu/drawDifference";
   import drawImage from "./webgpu/drawImage";
+  import drawStamp from "./webgpu/drawStamp";
 
   let originalImage = $state<HTMLCanvasElement | null>(null);
   let textOnImage = $state<HTMLCanvasElement | null>(null);
@@ -223,6 +224,7 @@
       }
       currentChar = processedText[currentIndex];
       drawText();
+      await drawStamp(originalImage!);
       currentDisplayCharIndex++;
     }
   }
