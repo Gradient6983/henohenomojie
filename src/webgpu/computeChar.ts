@@ -52,6 +52,23 @@ export default async function computeChar(
     .$usage("storage");
   const view = tex.createView(d.texture2d(d.f32));
   const sampledView = tex.createView(d.textureStorage2d("rgba16float"));
+<<<<<<< HEAD
+=======
+  const stampTex = Manager.stampTexture.$usage("sampled").$usage("storage");
+  const stampView = stampTex.createView(d.texture2d(d.f32));
+  // 쓰기용으로 사용할 새로운 텍스처 생성
+  const newStampTex = root
+    .createTexture({
+      size: [canvasWidth, canvasHeight],
+      format: "rgba16float" as const,
+    })
+    .$usage("sampled")
+    .$usage("storage");
+  const newStampView = newStampTex.createView(d.texture2d(d.f32));
+  const stampStoreView = newStampTex.createView(
+    d.textureStorage2d("rgba16float"),
+  );
+>>>>>>> 292f305dc620a3716dd2a9d9bb262c790be6239f
 
   const program = root.createGuardedComputePipeline((xIdx, yIdx) => {
     "use gpu";
@@ -97,6 +114,9 @@ export default async function computeChar(
     const yCondition = pixelPos.y >= charMinY && pixelPos.y <= charMaxY;
     if (!xCondition || !yCondition) {
       std.textureStore(sampledView.$, xy, diffTexColor);
+      // 기존 값을 그대로 복사
+      const prevStamp = std.textureLoad(stampView.$, xy, 0).r;
+      std.textureStore(stampStoreView.$, xy, d.vec4f(prevStamp, 0.0, 0.0, 1.0));
     } else {
       const charX = d.u32(pixelPos.x - charMinX);
       const charY = d.u32(pixelPos.y - charMinY);
@@ -110,10 +130,18 @@ export default async function computeChar(
         diffTexColor.a + charTex.a * charPos.opacity,
       );
       std.textureStore(sampledView.$, xy, blended);
+<<<<<<< HEAD
 
       // 히트맵 텍스처의 값도 업데이트해서 해당 위치에 글자가 한번 그려진적 있다는 사실을 업데이트해주기
       // 이때 히트맵 텍스처는 rgb값을 업데이트함
       // TODO: 업데이트에는 한계가 있으니 추가하는 최소값을 조절하거나, 아니면 정규화 같은 방식을 생각해봐야할듯?
+=======
+      // stamp texture에 대해서도 업데이트 진행
+      const prevStamp = std.textureLoad(stampView.$, xy, 0).r;
+      const stampGain = 0.02;
+      const nextStamp = std.clamp(prevStamp + charAlpha * stampGain, 0.0, 1.0);
+      std.textureStore(stampStoreView.$, xy, d.vec4f(nextStamp, 0.0, 0.0, 1.0));
+>>>>>>> 292f305dc620a3716dd2a9d9bb262c790be6239f
     }
   });
 
@@ -124,6 +152,9 @@ export default async function computeChar(
   // TODO: 디버깅용으로 캔버스에 그리는 건 추후에 다른 함수로 빼기
   Manager.differenceTexture = tex;
   Manager.differenceView = view;
+
+  Manager.stampTexture = newStampTex;
+  Manager.stampView = newStampView;
 
   // pipeline 생성
   const pipeline = root.createRenderPipeline({

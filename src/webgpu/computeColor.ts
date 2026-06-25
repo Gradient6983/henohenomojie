@@ -145,8 +145,11 @@ export async function computeColor(
           tex.a + charTex.a * candidate.opacity,
         );
         if (charAlpha > 0.01) {
+<<<<<<< HEAD
           // 실제로 더해주는 값은 그냥 배경의 색을 더해줘야 함
           // TODO: 글자의 알파값은 반영이 안된 색상이기 때문에 나중에 보정해주기
+=======
+>>>>>>> 292f305dc620a3716dd2a9d9bb262c790be6239f
           std.atomicAdd(avgColorBuffer.$[i].r, d.u32(tex.rgb.r * 255));
           std.atomicAdd(avgColorBuffer.$[i].g, d.u32(tex.rgb.g * 255));
           std.atomicAdd(avgColorBuffer.$[i].b, d.u32(tex.rgb.b * 255));

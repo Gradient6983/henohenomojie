@@ -9,6 +9,7 @@
   import { debugDifference } from "./webgpu/debugDifference";
   import { drawDifference } from "./webgpu/drawDifference";
   import drawImage from "./webgpu/drawImage";
+  import drawStamp from "./webgpu/drawStamp";
 
   let originalImage = $state<HTMLCanvasElement | null>(null);
   let textOnImage = $state<HTMLCanvasElement | null>(null);
@@ -49,9 +50,113 @@
   const fontFamily = "Pretendard JP Variable";
   const fontWeight = 700;
   const font = `${fontWeight} ${charSize}px ${fontFamily}`;
-  const textColor = "rgb(255, 255, 255)";
+  const textColor = "rgb(0, 0, 0)";
 
-  const text = "안녕하세요 반가워\n새로운 텍스트";
+  const text = `アップ&ダウン スクランブルランブル加速するエゴは永遠にグランブルー
+ハイ&ロー 突き刺すキューピッドアロー
+光と影飲み込む鳴り止まぬシグナル
+調律されてる鼓動？
+くだらない言葉吹き飛ばす
+私たちは世界を変える
+さあアップ&ダウン
+振り返る暇はない
+このリアル掌返して皆テイクオーバー
+
+Clap to the Beat
+Noise&Hits
+Let them burn, we're the antidote.
+Clap to the Beat
+Noise&Hits
+Full Speed
+
+愛して皆テイクオーバー
+
+テイクオーバー
+
+狂った日々召ませ口上 Aha!
+空きっ腹に流し込む一切合切
+感覚を道連れにして反響 
+感情を誘う残響
+
+ピーチクパーチク
+どうにもならない言葉締めくくるってな月旦
+微細な心コロコロ転がる英才教育
+でもでもBe side
+講釈垂れ繰り返して見て聴いて？
+キャパシティオーバー？（オーバー）
+もちつきなよ
+食らわせてほらGet Down
+
+世界中の周波数を
+リブートしてこの日を塗り替えてみたい
+嘘も本当も飲み込んで
+生きる 生きる 私のテンポで
+研ぎ澄まされたホワイトノイズは
+誰かのエナジーになりたい
+青い残像の頂上キラーチューン
+
+Clap Clap Clap
+お決まりの台詞
+繰り返す言葉に乞うご期待
+You&I
+突き上げるヘイロー
+光と影飲み込む君照らすCygnus
+効率化は興味ない
+遠回りをしてもいいじゃない
+私たちは世界を変える
+さあClap Clap Clap
+立ち止まる間はない
+追いつかない速度でアクセルをテイクオーバー
+
+クルクル回るマセた登場 Aha!
+朝昼夜食べ尽くす一切合切
+背徳を蹴散らして
+そこらじゅう振り撒く
+偽りを誘う乱丁
+
+放逐トーチカ
+どうにもならない言葉で責めるのこりゃ月旦
+無粋な一言でカラカラ嗤う有言実行
+でもでもBe side
+強弱無し繰り返して見て聴いて？
+またフルオーバー（オーバー）
+月並みだよ幸せになりゃGet Down
+
+怪獣の秘めたScheme
+地球を知って今この時を経たみたい
+光と闇を取り込んで
+混ざる混ざる私の常識
+鮮やかに放つこのReason
+誰かのエナジーになるだろう
+全てを満たすあのキラーチューン
+
+Love Love Love始まりの碧
+加速するエゴは永遠にグランブルー
+ハイ&ロー 突き刺すキューピッドアロー
+光と影飲み込む鳴り止まぬシグナル
+侵食するのは向上
+迸る言葉叫ぶ Freedom
+私たちの世界は変わる 
+さあWrap Wrap Wrap
+今を生きるPライン
+このリアルいつまでも掴みなテイクオーバー
+
+Clap to the Beat
+Noise&Hits
+Let them burn, we're the antidote
+Clap to the Beat
+Noise&Hits
+Full Speed
+愛して皆テイクオーバー
+
+Na Na Na Na
+
+敗色を蹴散らせ炎 Aha!
+愛と苦楽満たす本能 Yaba!
+最速ドクドク満場一致
+好きなように照らせよHave a good time! 
+Aha!
+`;
   const emptySpaceRegex = /^\s*$/;
   const processedText = text
     .split("")
@@ -108,18 +213,19 @@
   });
 
   async function handleCompute() {
-    const candidateNum = 1000; // 후보 글자로 생성될 글자 개수수
-    const displayCharNum = 700; // 화면에 표시될 글자 개수
+    const candidateNum = 2000; // 후보 글자로 생성될 글자 개수
+    const displayCharNum = processedText.length; // 화면에 표시될 글자 개수
     const epochNum = 10; // 한 글자당 학습 횟수
     const topCandidateNum = 50; // 상위 랭킹의 글자 개수
     const charPosClip = {
       x: { min: 0, max: 1 },
       y: { min: 0, max: 1 },
-      scale: { min: 0.05, max: 2 },
+      scale: { min: 0.005, max: 1.5 }, // 0.01~2 (1920 1080 기준)
       opacity: { min: 0.2, max: 1 },
       rotation: { min: 0, max: 360 },
     }; // 글자 위치의 마지노선 값
-    const charScaleVaraince = 0.1; // 글자 크기 minmax의 변동 정도
+    const charScaleVaraince = 0.01; // 글자 크기 minmax의 변동 정도 0.1
+    const ohterVariance = 0.01; // 글자 크기 외의 변동 정도 0.01
 
     if (!textOnImage || !charCanvas) return;
 
@@ -128,7 +234,7 @@
       const charMin = charPosClip.scale.min;
       // (5 + 0.2) * e^(-0.4 * c) + 0.1 + 0.2
       return (
-        (charMax + charScaleVaraince) * Math.exp(-0.8 * c) +
+        (charMax + charScaleVaraince) * Math.exp(-1.5 * c) +
         charMin +
         charScaleVaraince
       );
@@ -137,6 +243,9 @@
     for (let c = 0; c < displayCharNum; c++) {
       // 원래는 0.01을 곱해뒀으나, 빠른 줄어듦을 확인하기 위해 0.1로 변경
       const charCurrentScale = charScaleFunc(c * 0.02) - charScaleVaraince;
+      // 크기가 줄어들수록 점점 후보가 늘어나게 하기,
+      // 크기 값은 clip에설정해둔 max를 기준으로 계산하게 함
+      // 단 너무 많이 늘어나면 안됨, max는 5000개
 
       let diffArray: number[] = [];
       // 리스트 초기화
@@ -194,7 +303,7 @@
             const varianceList = addRandomVariance(
               data,
               Math.trunc(candidateNum / topCandidateNum),
-              0.01,
+              ohterVariance,
               charPosClip,
             );
             dataCandidateList.push(...varianceList);
@@ -223,12 +332,13 @@
       }
       currentChar = processedText[currentIndex];
       drawText();
+      await drawStamp(originalImage!);
       currentDisplayCharIndex++;
     }
   }
 </script>
 
-<div>
+<div class="app-container">
   <!-- <button onclick={handleClick}>Click me</button>
   <p>Count: {count}</p>
   <p>Increment By: {incrementBy}</p> -->
@@ -256,7 +366,7 @@
     <div>
       <div>
         <p>Text: {currentDisplayCharIndex}</p>
-        <pre>{text}</pre>
+        <!-- <pre>{text}</pre> -->
         <p>Currnet: {currentChar}</p>
         <p>Index: {currentIndex}</p>
         {#if diffRanks.length > 0}
@@ -290,7 +400,7 @@
               </tr>
               <tr>
                 <th> diff </th>
-                <td>{diffs[idx] / 1_000_000_000}</td>
+                <td>{diffs[idx]}</td>
               </tr>
               <tr>
                 <th> color </th>
@@ -306,6 +416,19 @@
 </div>
 
 <style>
+  .app-container {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .canvas-container {
+    height: 100%;
+  }
+
   canvas {
     border: 1px solid black;
     width: 100%;
@@ -313,7 +436,7 @@
 
   .char-canvas {
     width: 200px;
-    background-color: #000000;
+    background-color: #ffffff;
   }
   .container {
     margin: 0 auto;
@@ -323,6 +446,7 @@
     align-items: center;
     gap: 10px;
     width: 80%;
+    flex: 1;
   }
   .canvas-container {
     width: 80%;
