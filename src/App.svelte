@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import sampleImage from "./assets/twinfield.jpg";
+  import sampleImage from "./assets/sample.png";
   import Manager from "./manager";
   import type { CharPos, Color } from "./type";
   import { addRandomVariance, createRandomDataList } from "./util";
