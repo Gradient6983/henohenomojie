@@ -135,15 +135,3 @@ export function addRandomVariance(
   }));
 }
 
-export function updateCanvasSize(canvas: HTMLCanvasElement) {
-  const dpr = Manager.dpr;
-  if (!Manager.image) return;
-  const image = Manager.image;
-  const canvasWidth = image.width * dpr;
-  const canvasHeight = image.height * dpr;
-  canvas.width = canvasWidth;
-  canvas.height = canvasHeight;
-  canvas.style.width = "100%";
-  Manager.canvasWidth = canvasWidth;
-  Manager.canvasHeight = canvasHeight;
-}

@@ -5,11 +5,44 @@ import {
   type TgpuTexture,
   type TgpuTextureView,
 } from "typegpu";
+import type { CharPosRange } from "./type";
 import { getFilledCanvas } from "./util";
 
 const root = await tgpu.init();
 
 export default class Manager {
+  static readonly charCanvasSettings = {
+    charSize: 960,
+    charPadding: 10,
+    fontFamily: "Pretendard JP Variable",
+    fontWeight: 700,
+    textColor: "rgb(0, 0, 0)",
+  } as const;
+
+  static readonly glyphSearchConfig = {
+    candidateNum: 2000,
+    epochNum: 10,
+    topCandidateNum: 50,
+    charPosClip: {
+      x: { min: 0, max: 1 },
+      y: { min: 0, max: 1 },
+      scale: { min: 0.01, max: 1.5 },
+      opacity: { min: 0.2, max: 1 },
+      rotation: { min: 0, max: 360 },
+    } as CharPosRange,
+    charScaleVariance: 0.01,
+    otherVariance: 0.01,
+  } as const;
+
+  static readonly scoringConfig = {
+    alphaThreshold: 0.01,
+    stampOccK: 0.2,
+    stampGain: 0.02,
+    scoreFactor: 4096,
+    colorNormDenominator: 1.732,
+    colorNormMax: 255,
+  } as const;
+
   static root: TgpuRoot = root;
   /** 원본 이미지 배경 */
   static imageTexture: TgpuTexture;
@@ -118,5 +151,15 @@ export default class Manager {
       throw new Error("[Manager] 캔버스 크기가 초기화되지 않았습니다.");
     canvas.width = Manager.canvasWidth;
     canvas.height = Manager.canvasHeight;
+  }
+
+  static async initWithImageAndCanvas(
+    imageLink: string,
+    outputCanvas: HTMLCanvasElement,
+  ) {
+    await Manager.loadImage(imageLink);
+    Manager.initSizes();
+    Manager.initTexture();
+    Manager.initCanvas(outputCanvas);
   }
 }

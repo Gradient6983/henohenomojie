@@ -1,10 +1,10 @@
 import { d, std } from "typegpu";
 import Manager from "../manager";
 import type { CharPos } from "../type";
+import { createGpuCandidate, gpuCandidateStruct } from "./gpuUtils";
 
 export async function computeColor(
   charPosList: CharPos[],
-  debugCanvas: HTMLCanvasElement,
   charCanvas: HTMLCanvasElement,
 ) {
   if (!Manager.imageTexture) {
@@ -16,23 +16,13 @@ export async function computeColor(
 
   // 초기화
   const root = Manager.root;
-
-  // struct 생성
-  const data = d.struct({
-    x: d.f32,
-    y: d.f32,
-    scale: d.f32,
-    opacity: d.f32,
-    rotation: d.f32,
-  });
+  const { alphaThreshold, colorNormMax } = Manager.scoringConfig;
 
   // storage buffer 생성
   const candidateBuffer = root.createReadonly(
-    d.arrayOf(data, charPosList.length),
+    d.arrayOf(gpuCandidateStruct, charPosList.length),
   );
-  candidateBuffer.write(charPosList);
-
-  // const candidateFitness = root.createMutable(d.arrayOf(d.f32, viewX * viewY));
+  candidateBuffer.write(charPosList.map(createGpuCandidate));
 
   const view = Manager.imageView;
   const viewSize = [Manager.canvasWidth, Manager.canvasHeight] as const;
@@ -51,26 +41,6 @@ export async function computeColor(
   Manager.charTexture = charTexture;
   Manager.charView = charView;
 
-  // 어떤 식으로든 이미지를 생성하는건 상관없음
-  // 그냥 이미지를 storage용으로 생성하고, 그걸 textureStorage2d view로 보면 됨
-  const editedImage = root
-    .createTexture({
-      size: viewSize,
-      format: "rgba16float" as const,
-    })
-    .$usage("sampled")
-    .$usage("storage");
-
-  const editedImageView = editedImage.createView(
-    d.textureStorage2d("rgba16float"),
-  );
-  const editedImageSampledView = editedImage.createView(d.texture2d(d.f32));
-
-  const sampler = root.createSampler({
-    magFilter: "nearest",
-    minFilter: "nearest",
-  });
-
   const avgColor = d.struct({
     r: d.atomic(d.u32),
     g: d.atomic(d.u32),
@@ -79,7 +49,7 @@ export async function computeColor(
   });
 
   // dataList의 길이를 uniform으로 전달
-  const dataLength = root.createUniform(d.u32, charPosList.length);
+  const dataLength = root.createUniform(d.i32, charPosList.length);
   const avgColorBuffer = root.createMutable(
     d.arrayOf(avgColor, charPosList.length),
   );
@@ -91,127 +61,58 @@ export async function computeColor(
     const xy = d.vec2u(xIdx, yIdx);
     // 가장 흔한 방식은 textureLoad로 읽어오고, textureStore로 저장하는 방식
     const tex = std.textureLoad(view.$, xy, 0);
-    const texDimension = std.textureDimensions(view.$, 0);
     const charTexDimension = std.textureDimensions(charView.$, 0);
+
+    const charMaxX = d.f32(charTexDimension.x) / d.f32(2.0);
+    const charMaxY = d.f32(charTexDimension.y) / d.f32(2.0);
+    const charMinX = -charMaxX;
+    const charMinY = -charMaxY;
 
     // read candidate buffer
     for (let i = 0; i < dataLength.$; i++) {
       // 일단 가장 첫번째 요소만 읽어옴
       const candidate = candidateBuffer.$[i];
       // 픽셀의 해당 좌표가 char texture의 어느 부분에 들어가는지 계산하기
+      const pixelPos = candidate.transform.mul(d.vec3f(d.f32(xy.x), d.f32(xy.y), d.f32(1.0)));
 
-      const scaleMatrix = d.mat3x3f(
-        d.vec3f(1 / candidate.scale, 0, 0),
-        d.vec3f(0, 1 / candidate.scale, 0),
-        d.vec3f(0, 0, 1),
-      );
-      const rotationRad = (-candidate.rotation * 3.141592) / 180;
-      const rotationMatrix = d.mat3x3f(
-        d.vec3f(std.cos(rotationRad), std.sin(rotationRad), 0),
-        d.vec3f(-std.sin(rotationRad), std.cos(rotationRad), 0),
-        d.vec3f(0, 0, 1),
-      );
-      const transformMatrix = d.mat3x3f(
-        d.vec3f(1, 0, 0),
-        d.vec3f(0, 1, 0),
-        d.vec3f(
-          -candidate.x * d.f32(texDimension.x),
-          -candidate.y * d.f32(texDimension.y),
-          1,
-        ),
-      );
-      const finalMatrix = scaleMatrix.mul(rotationMatrix).mul(transformMatrix);
-      const pixelPos = finalMatrix.mul(d.vec3f(d.f32(xy.x), d.f32(xy.y), 1));
-
-      const charMaxX = charTexDimension.x / 2;
-      const charMaxY = charTexDimension.y / 2;
-      const charMinX = -charMaxX;
-      const charMinY = -charMaxY;
       const xCondition = pixelPos.x >= charMinX && pixelPos.x <= charMaxX;
       const yCondition = pixelPos.y >= charMinY && pixelPos.y <= charMaxY;
-      if (!xCondition || !yCondition) {
-        std.textureStore(editedImageView.$, xy, tex);
-      } else {
+      if (xCondition && yCondition) {
         const charX = d.u32(pixelPos.x - charMinX);
         const charY = d.u32(pixelPos.y - charMinY);
         const charXy = d.vec2u(charX, charY);
         const charTex = std.textureLoad(charView.$, charXy, 0);
         const charAlpha = charTex.a * candidate.opacity;
-        // 여기에서는 디버깅 용으로 어디에 글자가 있는지 보이게 할 거기 때문에
-        // 글자와 배경의 색을 섞어 줌
-        const blendedRgb = std.mix(tex.rgb, charTex.rgb, charAlpha);
-        const blended = d.vec4f(
-          blendedRgb,
-          tex.a + charTex.a * candidate.opacity,
-        );
-        if (charAlpha > 0.01) {
-<<<<<<< HEAD
+
+        if (charAlpha > d.f32(alphaThreshold)) {
           // 실제로 더해주는 값은 그냥 배경의 색을 더해줘야 함
           // TODO: 글자의 알파값은 반영이 안된 색상이기 때문에 나중에 보정해주기
-=======
->>>>>>> 292f305dc620a3716dd2a9d9bb262c790be6239f
-          std.atomicAdd(avgColorBuffer.$[i].r, d.u32(tex.rgb.r * 255));
-          std.atomicAdd(avgColorBuffer.$[i].g, d.u32(tex.rgb.g * 255));
-          std.atomicAdd(avgColorBuffer.$[i].b, d.u32(tex.rgb.b * 255));
-          std.atomicAdd(avgColorBuffer.$[i].count, 1);
+          std.atomicAdd(
+            avgColorBuffer.$[i].r,
+            d.u32(tex.rgb.r * d.f32(colorNormMax)),
+          );
+          std.atomicAdd(
+            avgColorBuffer.$[i].g,
+            d.u32(tex.rgb.g * d.f32(colorNormMax)),
+          );
+          std.atomicAdd(
+            avgColorBuffer.$[i].b,
+            d.u32(tex.rgb.b * d.f32(colorNormMax)),
+          );
+          std.atomicAdd(avgColorBuffer.$[i].count, d.u32(1));
         }
-        std.textureStore(editedImageView.$, xy, blended);
       }
     }
   });
 
   program.dispatchThreads(viewSize[0], viewSize[1]);
 
-  // pipeline 생성
-  const pipeline = root.createRenderPipeline({
-    primitive: { topology: "triangle-list" },
-    vertex: ({ $vertexIndex: vid }) => {
-      "use gpu";
-
-      // 캔버스 전체를 덮는 사각형 생성
-      const positions = [
-        d.vec2f(-1.0, -1.0),
-        d.vec2f(-1.0, 1.0),
-        d.vec2f(1.0, -1.0),
-        d.vec2f(1.0, 1.0),
-        d.vec2f(-1.0, 1.0),
-        d.vec2f(1.0, -1.0),
-      ];
-
-      const pos = positions[vid];
-      // -1 ~ 1 -> 0 ~ 1, y축 반전
-      const uv = d.vec2f((pos.x + 1.0) * 0.5, (1.0 - pos.y) * 0.5);
-
-      return {
-        $position: d.vec4f(pos, 0.0, 1.0),
-        uv,
-      };
-    },
-    fragment: ({ uv }) => {
-      "use gpu";
-
-      const color = std.textureSample(editedImageSampledView.$, sampler.$, uv);
-      return color;
-    },
-  });
-
-  // alpha mode를 premultiplied로 설정하면 alpha blending이 자동으로 됨
-  const context = root.configureContext({
-    canvas: debugCanvas,
-    alphaMode: "premultiplied",
-  });
-  pipeline
-    .withColorAttachment({
-      view: context,
-    })
-    .draw(6);
-
   // 0~255 사이의 값을 0~1 사이의 값으로 바꾸기
   const sampleAvgColor = await avgColorBuffer.read();
   for (const color of sampleAvgColor) {
-    color.r = color.r / (color.count * 255);
-    color.g = color.g / (color.count * 255);
-    color.b = color.b / (color.count * 255);
+    color.r = color.r / (color.count * colorNormMax);
+    color.g = color.g / (color.count * colorNormMax);
+    color.b = color.b / (color.count * colorNormMax);
   }
   return sampleAvgColor;
 }

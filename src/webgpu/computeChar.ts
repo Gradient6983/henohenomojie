@@ -1,6 +1,7 @@
 import { d, std } from "typegpu";
 import Manager from "../manager";
 import type { CharPos, Color } from "../type";
+import { createGpuCandidate, gpuCandidateStruct } from "./gpuUtils";
 
 /**
  * 글자가 그려진 텍스처를 생성하고, 그 텍스처를 캔버스에 그리는 함수
@@ -17,6 +18,7 @@ export default async function computeChar(
   const root = Manager.root;
   const canvasWidth = Manager.canvasWidth;
   const canvasHeight = Manager.canvasHeight;
+  const { stampGain } = Manager.scoringConfig;
 
   const sampler = root.createSampler({
     magFilter: "nearest",
@@ -30,16 +32,8 @@ export default async function computeChar(
 
   if (!diffTex || !charTex) return;
 
-  const charPosStruct = d.struct({
-    x: d.f32,
-    y: d.f32,
-    scale: d.f32,
-    opacity: d.f32,
-    rotation: d.f32,
-    color: d.vec3f,
-  });
-  const charPosBuffer = root.createUniform(charPosStruct, {
-    ...charPos,
+  const charPosBuffer = root.createUniform(gpuCandidateStruct, {
+    ...createGpuCandidate(charPos),
     color: d.vec3f(color[0], color[1], color[2]),
   });
 
@@ -52,8 +46,6 @@ export default async function computeChar(
     .$usage("storage");
   const view = tex.createView(d.texture2d(d.f32));
   const sampledView = tex.createView(d.textureStorage2d("rgba16float"));
-<<<<<<< HEAD
-=======
   const stampTex = Manager.stampTexture.$usage("sampled").$usage("storage");
   const stampView = stampTex.createView(d.texture2d(d.f32));
   // 쓰기용으로 사용할 새로운 텍스처 생성
@@ -68,7 +60,6 @@ export default async function computeChar(
   const stampStoreView = newStampTex.createView(
     d.textureStorage2d("rgba16float"),
   );
->>>>>>> 292f305dc620a3716dd2a9d9bb262c790be6239f
 
   const program = root.createGuardedComputePipeline((xIdx, yIdx) => {
     "use gpu";
@@ -76,53 +67,31 @@ export default async function computeChar(
     const xy = d.vec2u(xIdx, yIdx);
     // 가장 흔한 방식은 textureLoad로 읽어오고, textureStore로 저장하는 방식
     const diffTexColor = std.textureLoad(diffView.$, xy, 0);
-    const diffTexDimension = std.textureDimensions(diffView.$, 0);
     const charTexDimension = std.textureDimensions(charView.$, 0);
+
+    const charMaxX = d.f32(charTexDimension.x) / d.f32(2.0);
+    const charMaxY = d.f32(charTexDimension.y) / d.f32(2.0);
+    const charMinX = -charMaxX;
+    const charMinY = -charMaxY;
 
     // 일단 가장 첫번째 요소만 읽어옴
     const charPos = charPosBuffer.$;
     // 픽셀의 해당 좌표가 char texture의 어느 부분에 들어가는지 계산하기
+    const pixelPos = charPos.transform.mul(d.vec3f(d.f32(xy.x), d.f32(xy.y), d.f32(1.0)));
 
-    const scaleMatrix = d.mat3x3f(
-      d.vec3f(1 / charPos.scale, 0, 0),
-      d.vec3f(0, 1 / charPos.scale, 0),
-      d.vec3f(0, 0, 1),
-    );
-    const rotationRad = (-charPos.rotation * 3.141592) / 180;
-    const rotationMatrix = d.mat3x3f(
-      d.vec3f(std.cos(rotationRad), std.sin(rotationRad), 0),
-      d.vec3f(-std.sin(rotationRad), std.cos(rotationRad), 0),
-      d.vec3f(0, 0, 1),
-    );
-    const transformMatrix = d.mat3x3f(
-      d.vec3f(1, 0, 0),
-      d.vec3f(0, 1, 0),
-      d.vec3f(
-        -charPos.x * d.f32(diffTexDimension.x),
-        -charPos.y * d.f32(diffTexDimension.y),
-        1,
-      ),
-    );
-    const finalMatrix = scaleMatrix.mul(rotationMatrix).mul(transformMatrix);
-    const pixelPos = finalMatrix.mul(d.vec3f(d.f32(xy.x), d.f32(xy.y), 1));
-
-    const charMaxX = charTexDimension.x / 2;
-    const charMaxY = charTexDimension.y / 2;
-    const charMinX = -charMaxX;
-    const charMinY = -charMaxY;
     const xCondition = pixelPos.x >= charMinX && pixelPos.x <= charMaxX;
     const yCondition = pixelPos.y >= charMinY && pixelPos.y <= charMaxY;
     if (!xCondition || !yCondition) {
       std.textureStore(sampledView.$, xy, diffTexColor);
       // 기존 값을 그대로 복사
       const prevStamp = std.textureLoad(stampView.$, xy, 0).r;
-      std.textureStore(stampStoreView.$, xy, d.vec4f(prevStamp, 0.0, 0.0, 1.0));
+      std.textureStore(stampStoreView.$, xy, d.vec4f(prevStamp, d.f32(0.0), d.f32(0.0), d.f32(1.0)));
     } else {
       const charX = d.u32(pixelPos.x - charMinX);
       const charY = d.u32(pixelPos.y - charMinY);
       const charXy = d.vec2u(charX, charY);
       const charTex = std.textureLoad(charView.$, charXy, 0);
-      const charRgb = charPosBuffer.$.color.rgb;
+      const charRgb = charPos.color;
       const charAlpha = charTex.a * charPos.opacity;
       const blendedRgb = std.mix(diffTexColor.rgb, charRgb, charAlpha);
       const blended = d.vec4f(
@@ -130,26 +99,20 @@ export default async function computeChar(
         diffTexColor.a + charTex.a * charPos.opacity,
       );
       std.textureStore(sampledView.$, xy, blended);
-<<<<<<< HEAD
-
-      // 히트맵 텍스처의 값도 업데이트해서 해당 위치에 글자가 한번 그려진적 있다는 사실을 업데이트해주기
-      // 이때 히트맵 텍스처는 rgb값을 업데이트함
-      // TODO: 업데이트에는 한계가 있으니 추가하는 최소값을 조절하거나, 아니면 정규화 같은 방식을 생각해봐야할듯?
-=======
       // stamp texture에 대해서도 업데이트 진행
       const prevStamp = std.textureLoad(stampView.$, xy, 0).r;
-      const stampGain = 0.02;
-      const nextStamp = std.clamp(prevStamp + charAlpha * stampGain, 0.0, 1.0);
-      std.textureStore(stampStoreView.$, xy, d.vec4f(nextStamp, 0.0, 0.0, 1.0));
->>>>>>> 292f305dc620a3716dd2a9d9bb262c790be6239f
+      const nextStamp = std.clamp(
+        prevStamp + charAlpha * d.f32(stampGain),
+        d.f32(0.0),
+        d.f32(1.0),
+      );
+      std.textureStore(stampStoreView.$, xy, d.vec4f(nextStamp, d.f32(0.0), d.f32(0.0), d.f32(1.0)));
     }
   });
 
   program.dispatchThreads(canvasWidth, canvasHeight);
 
-  // 원래는 최상위 랭킹의 글자 데이터의 위치를 텍스처에 반영하는게 이 함수의 의도이므로
-  // 여기에서 바로 텍스처를 저장하는게 나음
-  // TODO: 디버깅용으로 캔버스에 그리는 건 추후에 다른 함수로 빼기
+  // 최상위 랭킹의 글자 데이터의 위치를 텍스처에 반영
   Manager.differenceTexture = tex;
   Manager.differenceView = view;
 
