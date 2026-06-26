@@ -1,7 +1,7 @@
 import { d } from "typegpu";
 import { mat3 } from "wgpu-matrix";
-import type { CharPos } from "../type";
 import Manager from "../manager";
+import type { CharPos } from "../type";
 
 export const gpuCandidateStruct = d.struct({
   transform: d.mat3x3f,

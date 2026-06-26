@@ -1,6 +1,6 @@
+import Manager from "../../manager";
 import type { CharPos, CharPosRange, Color } from "../../type";
 import { addRandomVariance, createRandomDataList } from "../../util";
-import Manager from "../../manager";
 import computeChar from "../computeChar";
 import { computeColor } from "../computeColor";
 import { debugDifference } from "../debugDifference";
@@ -15,6 +15,14 @@ export interface GlyphComputeSnapshot {
   diffRanks: number[];
 }
 
+export interface GlyphStepResult {
+  step: number;
+  char: string;
+  pos: CharPos;
+  color: Color;
+  diff: number;
+}
+
 export interface GlyphComputeOptions {
   processedText: string[];
   startIndex: number;
@@ -22,6 +30,7 @@ export interface GlyphComputeOptions {
   textOnlyImage: HTMLCanvasElement;
   renderChar: (char: string) => void;
   onUpdate?: (snapshot: GlyphComputeSnapshot) => void;
+  onStepResult?: (result: GlyphStepResult) => void;
 }
 
 function rankByDifference(diffArray: number[]): number[] {
@@ -35,12 +44,14 @@ function charScaleForStep(
   config: {
     charPosClip: CharPosRange;
     charScaleVariance: number;
+    scaleDecayFactor: number;
   },
 ) {
   const charMax = config.charPosClip.scale.max;
   const charMin = config.charPosClip.scale.min;
   return (
-    (charMax + config.charScaleVariance) * Math.exp(-1.5 * index) +
+    (charMax + config.charScaleVariance) *
+      Math.exp(-config.scaleDecayFactor * index) +
     charMin +
     config.charScaleVariance
   );
@@ -66,7 +77,8 @@ export async function runGlyphComputeWorkflow(options: GlyphComputeOptions) {
   let currentDisplayCharIndex = 0;
 
   const snapshot: GlyphComputeSnapshot = {
-    currentChar: options.processedText[currentIndex] ?? options.processedText[0],
+    currentChar:
+      options.processedText[currentIndex] ?? options.processedText[0],
     currentIndex,
     currentDisplayCharIndex,
     dataList: [],
@@ -77,7 +89,8 @@ export async function runGlyphComputeWorkflow(options: GlyphComputeOptions) {
 
   for (let c = 0; c < displayCharNum; c++) {
     const charCurrentScale =
-      charScaleForStep(c * 0.02, config) - config.charScaleVariance;
+      charScaleForStep(c * config.scaleStepFactor, config) -
+      config.charScaleVariance;
     let diffArray: number[] = [];
 
     let dataCandidateList: CharPos[] = createRandomDataList(
@@ -107,7 +120,10 @@ export async function runGlyphComputeWorkflow(options: GlyphComputeOptions) {
           (color) => [color.r, color.g, color.b] as Color,
         );
 
-        const result = await debugDifference(snapshot.colors, dataCandidateList);
+        const result = await debugDifference(
+          snapshot.colors,
+          dataCandidateList,
+        );
         if (!result) throw new Error("debugDifference failed");
         diffArray = result;
 
@@ -138,6 +154,13 @@ export async function runGlyphComputeWorkflow(options: GlyphComputeOptions) {
       snapshot.diffs = diffArray;
       const topIndex = snapshot.diffRanks[0];
       if (topIndex !== undefined) {
+        options.onStepResult?.({
+          step: currentDisplayCharIndex,
+          char: snapshot.currentChar,
+          pos: snapshot.dataList[topIndex],
+          color: snapshot.colors[topIndex],
+          diff: snapshot.diffs[topIndex],
+        });
         await computeChar(
           snapshot.dataList[topIndex],
           snapshot.colors[topIndex],

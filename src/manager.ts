@@ -11,6 +11,12 @@ import { getFilledCanvas } from "./util";
 const root = await tgpu.init();
 
 export default class Manager {
+  static readonly textureFormat = "rgba16float" as const;
+  static readonly nearestSamplerDescriptor = {
+    magFilter: "nearest" as const,
+    minFilter: "nearest" as const,
+  };
+
   static readonly charCanvasSettings = {
     charSize: 960,
     charPadding: 10,
@@ -32,6 +38,8 @@ export default class Manager {
     } as CharPosRange,
     charScaleVariance: 0.01,
     otherVariance: 0.01,
+    scaleStepFactor: 0.02,
+    scaleDecayFactor: 1.5,
   } as const;
 
   static readonly scoringConfig = {
@@ -41,6 +49,7 @@ export default class Manager {
     scoreFactor: 4096,
     colorNormDenominator: 1.732,
     colorNormMax: 255,
+    invalidPenalty: 1e9,
   } as const;
 
   static root: TgpuRoot = root;
@@ -97,7 +106,7 @@ export default class Manager {
     const texture = Manager.root
       .createTexture({
         size: [Manager.canvasWidth, Manager.canvasHeight],
-        format: "rgba16float" as const,
+        format: Manager.textureFormat,
       })
       .$usage("sampled");
     texture.write(image);
@@ -107,26 +116,17 @@ export default class Manager {
     // difference texture 초기화
     const initDiffTexture = getFilledCanvas();
 
-    const differenceTexture = root
-      .createTexture({
-        size: [canvasWidth, canvasHeight],
-        format: "rgba16float" as const,
-      })
-      .$usage("sampled")
-      .$usage("storage");
+    const differenceTexture = Manager.createStorageTexture(
+      canvasWidth,
+      canvasHeight,
+    );
 
     differenceTexture.write(initDiffTexture);
     const differenceView = differenceTexture.createView(d.texture2d(d.f32));
     Manager.differenceTexture = differenceTexture;
     Manager.differenceView = differenceView;
 
-    const heatmapTexture = root
-      .createTexture({
-        size: [canvasWidth, canvasHeight],
-        format: "rgba16float" as const,
-      })
-      .$usage("sampled")
-      .$usage("storage");
+    const heatmapTexture = Manager.createStorageTexture(canvasWidth, canvasHeight);
     heatmapTexture.write(getFilledCanvas([0, 0, 0]));
     const heatmapView = heatmapTexture.createView(d.texture2d(d.f32));
     Manager.stampTexture = heatmapTexture;
@@ -151,6 +151,62 @@ export default class Manager {
       throw new Error("[Manager] 캔버스 크기가 초기화되지 않았습니다.");
     canvas.width = Manager.canvasWidth;
     canvas.height = Manager.canvasHeight;
+  }
+
+  static createNearestSampler() {
+    return Manager.root.createSampler(Manager.nearestSamplerDescriptor);
+  }
+
+  static createStorageTexture(width: number, height: number) {
+    return Manager.root
+      .createTexture({
+        size: [width, height],
+        format: Manager.textureFormat,
+      })
+      .$usage("sampled")
+      .$usage("storage");
+  }
+
+  static updateCharTextureFromCanvas(charCanvas: HTMLCanvasElement) {
+    const charTexture = Manager.createStorageTexture(
+      charCanvas.width,
+      charCanvas.height,
+    );
+    charTexture.write(charCanvas);
+    const charView = charTexture.createView(d.texture2d(d.f32));
+    Manager.charTexture = charTexture;
+    Manager.charView = charView;
+    return { charTexture, charView };
+  }
+
+  static createDifferenceWorkingSet() {
+    const tex = Manager.createStorageTexture(Manager.canvasWidth, Manager.canvasHeight);
+    return {
+      texture: tex,
+      sampledView: tex.createView(d.texture2d(d.f32)),
+      storageView: tex.createView(d.textureStorage2d(Manager.textureFormat)),
+    };
+  }
+
+  static createStampWorkingSet() {
+    const tex = Manager.createStorageTexture(Manager.canvasWidth, Manager.canvasHeight);
+    return {
+      texture: tex,
+      sampledView: tex.createView(d.texture2d(d.f32)),
+      storageView: tex.createView(d.textureStorage2d(Manager.textureFormat)),
+    };
+  }
+
+  static commitDifferenceAndStamp(
+    differenceTexture: TgpuTexture,
+    differenceView: TgpuTextureView<d.WgslTexture2d<d.F32>>,
+    stampTexture: TgpuTexture,
+    stampView: TgpuTextureView<d.WgslTexture2d<d.F32>>,
+  ) {
+    Manager.differenceTexture = differenceTexture;
+    Manager.differenceView = differenceView;
+    Manager.stampTexture = stampTexture;
+    Manager.stampView = stampView;
   }
 
   static async initWithImageAndCanvas(

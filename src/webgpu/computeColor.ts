@@ -25,21 +25,9 @@ export async function computeColor(
   candidateBuffer.write(charPosList.map(createGpuCandidate));
 
   const view = Manager.imageView;
-  const viewSize = [Manager.canvasWidth, Manager.canvasHeight] as const;
 
   // char texture 생성 (diffDebug 등에서 Manager로 재사용)
-  const charTexture = root
-    .createTexture({
-      size: [charCanvas.width, charCanvas.height],
-      format: "rgba16float" as const,
-    })
-    .$usage("sampled")
-    .$usage("storage");
-  charTexture.write(charCanvas);
-
-  const charView = charTexture.createView(d.texture2d(d.f32));
-  Manager.charTexture = charTexture;
-  Manager.charView = charView;
+  const { charView } = Manager.updateCharTextureFromCanvas(charCanvas);
 
   const avgColor = d.struct({
     r: d.atomic(d.u32),
@@ -73,7 +61,9 @@ export async function computeColor(
       // 일단 가장 첫번째 요소만 읽어옴
       const candidate = candidateBuffer.$[i];
       // 픽셀의 해당 좌표가 char texture의 어느 부분에 들어가는지 계산하기
-      const pixelPos = candidate.transform.mul(d.vec3f(d.f32(xy.x), d.f32(xy.y), d.f32(1.0)));
+      const pixelPos = candidate.transform.mul(
+        d.vec3f(d.f32(xy.x), d.f32(xy.y), d.f32(1.0)),
+      );
 
       const xCondition = pixelPos.x >= charMinX && pixelPos.x <= charMaxX;
       const yCondition = pixelPos.y >= charMinY && pixelPos.y <= charMaxY;
@@ -105,7 +95,7 @@ export async function computeColor(
     }
   });
 
-  program.dispatchThreads(viewSize[0], viewSize[1]);
+  program.dispatchThreads(Manager.canvasWidth, Manager.canvasHeight);
 
   // 0~255 사이의 값을 0~1 사이의 값으로 바꾸기
   const sampleAvgColor = await avgColorBuffer.read();

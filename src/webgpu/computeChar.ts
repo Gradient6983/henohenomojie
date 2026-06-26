@@ -20,10 +20,7 @@ export default async function computeChar(
   const canvasHeight = Manager.canvasHeight;
   const { stampGain } = Manager.scoringConfig;
 
-  const sampler = root.createSampler({
-    magFilter: "nearest",
-    minFilter: "nearest",
-  });
+  const sampler = Manager.createNearestSampler();
 
   const diffTex = Manager.differenceTexture;
   const diffView = Manager.differenceView;
@@ -37,29 +34,16 @@ export default async function computeChar(
     color: d.vec3f(color[0], color[1], color[2]),
   });
 
-  const tex = root
-    .createTexture({
-      size: [canvasWidth, canvasHeight],
-      format: "rgba16float" as const,
-    })
-    .$usage("sampled")
-    .$usage("storage");
-  const view = tex.createView(d.texture2d(d.f32));
-  const sampledView = tex.createView(d.textureStorage2d("rgba16float"));
+  const differenceSet = Manager.createDifferenceWorkingSet();
+  const tex = differenceSet.texture;
+  const view = differenceSet.sampledView;
+  const sampledView = differenceSet.storageView;
   const stampTex = Manager.stampTexture.$usage("sampled").$usage("storage");
   const stampView = stampTex.createView(d.texture2d(d.f32));
-  // 쓰기용으로 사용할 새로운 텍스처 생성
-  const newStampTex = root
-    .createTexture({
-      size: [canvasWidth, canvasHeight],
-      format: "rgba16float" as const,
-    })
-    .$usage("sampled")
-    .$usage("storage");
-  const newStampView = newStampTex.createView(d.texture2d(d.f32));
-  const stampStoreView = newStampTex.createView(
-    d.textureStorage2d("rgba16float"),
-  );
+  const stampSet = Manager.createStampWorkingSet();
+  const newStampTex = stampSet.texture;
+  const newStampView = stampSet.sampledView;
+  const stampStoreView = stampSet.storageView;
 
   const program = root.createGuardedComputePipeline((xIdx, yIdx) => {
     "use gpu";
@@ -113,11 +97,7 @@ export default async function computeChar(
   program.dispatchThreads(canvasWidth, canvasHeight);
 
   // 최상위 랭킹의 글자 데이터의 위치를 텍스처에 반영
-  Manager.differenceTexture = tex;
-  Manager.differenceView = view;
-
-  Manager.stampTexture = newStampTex;
-  Manager.stampView = newStampView;
+  Manager.commitDifferenceAndStamp(tex, view, newStampTex, newStampView);
 
   // pipeline 생성
   const pipeline = root.createRenderPipeline({

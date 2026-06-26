@@ -11,8 +11,13 @@ import { createGpuCandidate, gpuCandidateStruct } from "./gpuUtils";
  */
 export async function debugDifference(color: Color[], data: CharPos[]) {
   const root = Manager.root;
-  const { alphaThreshold, stampOccK, scoreFactor, colorNormDenominator } =
-    Manager.scoringConfig;
+  const {
+    alphaThreshold,
+    stampOccK,
+    scoreFactor,
+    colorNormDenominator,
+    invalidPenalty,
+  } = Manager.scoringConfig;
 
   const diffTex = Manager.differenceTexture.$usage("sampled").$usage("storage");
   const diffView = diffTex.createView(d.texture2d(d.f32));
@@ -87,8 +92,6 @@ export async function debugDifference(color: Color[], data: CharPos[]) {
 
   const diffArray = await diffBuffer.read();
   const activePixelArray = await activePixelBuffer.read();
-  const invalidPenalty = 1e9; // active pixel이 0인 경우 큰 값을 줘서 무효처리
-
   const averagedDiffArray = diffArray.map((diff, index) => {
     const active = activePixelArray[index];
     if (active === 0) return invalidPenalty;
