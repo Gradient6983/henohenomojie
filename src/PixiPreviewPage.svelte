@@ -3,6 +3,7 @@
   import { t } from "./i18n";
   import type { SongCatalogItem } from "./webgpu/glyph/replayIO";
   import songSource from "./webgpu/glyph/songSource";
+  import { clearTrainedResult, getTrainedResults } from "./trainedStore.svelte";
 
   // assets 폴더의 모든 jsonl을 원본 문자열로 불러온다.
   const rawModules = import.meta.glob("./assets/*.jsonl", {
@@ -50,31 +51,74 @@
     }
   }
 
-  const songs = songSource.map((song) => ({
-    song,
-    available: jsonlBySongId.has(song.id),
-  }));
+  let {
+    onTrain,
+    autoPlaySongId = null,
+    onAutoPlayConsumed,
+  }: {
+    onTrain: () => void;
+    /** 훈련 직후 자동으로 재생할 곡 id */
+    autoPlaySongId?: string | null;
+    onAutoPlayConsumed?: () => void;
+  } = $props();
 
-  let selected = $state<{ song: SongCatalogItem; jsonlRaw: string } | null>(
-    null,
+  // 메모리에 저장된 훈련 결과(반응형). 새 결과가 생기면 목록이 자동 갱신된다.
+  const trained = $derived(getTrainedResults());
+
+  // 번들 데이터 또는 메모리 훈련 결과가 있으면 재생 가능으로 표시한다.
+  const songs = $derived(
+    songSource.map((song) => ({
+      // 훈련 결과가 있으면 업로드 이미지로 덮어쓴 song을 사용한다.
+      song: trained[song.id]?.song ?? song,
+      available: jsonlBySongId.has(song.id) || Boolean(trained[song.id]),
+    })),
   );
 
+  let selected = $state<{
+    song: SongCatalogItem;
+    jsonlRaw: string;
+    edgeUrl?: string;
+  } | null>(null);
+
   function selectSong(song: SongCatalogItem) {
+    // 훈련 결과를 우선하고, 없으면 번들 jsonl을 사용한다.
+    const trainedResult = trained[song.id];
+    if (trainedResult) {
+      selected = {
+        song: trainedResult.song,
+        jsonlRaw: trainedResult.jsonlRaw,
+        edgeUrl: trainedResult.edgeUrl,
+      };
+      return;
+    }
     const jsonlRaw = jsonlBySongId.get(song.id);
     if (!jsonlRaw) return;
-    selected = { song, jsonlRaw };
+    selected = { song, jsonlRaw, edgeUrl: edgeUrlForSong(song) };
   }
 
   function back() {
     selected = null;
   }
+
+  // 훈련 결과를 지워 원래 이미지/데이터로 되돌린다.
+  function revert(id: string) {
+    clearTrainedResult(id);
+  }
+
+  // 훈련 직후 전달된 autoPlaySongId가 있으면 자동으로 해당 곡을 재생한다.
+  $effect(() => {
+    if (!autoPlaySongId) return;
+    const target = songSource.find((s) => s.id === autoPlaySongId);
+    if (target) selectSong(target);
+    onAutoPlayConsumed?.();
+  });
 </script>
 
 {#if selected}
   <GlyphPlayer
     song={selected.song}
     jsonlRaw={selected.jsonlRaw}
-    edgeUrl={edgeUrlForSong(selected.song)}
+    edgeUrl={selected.edgeUrl}
     onBack={back}
   />
 {:else}
@@ -86,8 +130,14 @@
       </header>
 
       <ul class="song-grid">
+        <li>
+          <button type="button" class="train-card" onclick={onTrain}>
+            <span class="train-icon">+</span>
+            <span class="train-label">{t().songSelect.trainEntry}</span>
+          </button>
+        </li>
         {#each songs as item (item.song.id)}
-          <li>
+          <li class="card-li">
             <button
               type="button"
               class="song-card"
@@ -110,6 +160,31 @@
                 </span>
               </span>
             </button>
+
+            {#if trained[item.song.id]}
+              <button
+                type="button"
+                class="revert-btn"
+                title={t().songSelect.revert}
+                aria-label={t().songSelect.revert}
+                onclick={() => revert(item.song.id)}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  width="16"
+                  height="16"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+                  <path d="M3 3v5h5" />
+                </svg>
+              </button>
+            {/if}
           </li>
         {/each}
       </ul>
@@ -146,6 +221,35 @@
     max-width: 1100px;
     margin: 0 auto;
     padding: 48px 24px 64px;
+  }
+
+  .card-li {
+    position: relative;
+  }
+
+  .revert-btn {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    background: rgba(0, 0, 0, 0.6);
+    color: #fff;
+    cursor: pointer;
+    transition:
+      background 0.12s ease,
+      transform 0.12s ease;
+  }
+
+  .revert-btn:hover {
+    background: rgba(120, 170, 255, 0.6);
+    transform: scale(1.08);
   }
 
   .select-header h1 {
@@ -241,5 +345,44 @@
   .state {
     font-size: 0.8rem;
     color: rgba(255, 255, 255, 0.55);
+  }
+
+  .train-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    width: 100%;
+    height: 100%;
+    min-height: 180px;
+    padding: 20px;
+    border: 1px dashed rgba(120, 170, 255, 0.5);
+    border-radius: 14px;
+    background: rgba(120, 170, 255, 0.06);
+    color: inherit;
+    cursor: pointer;
+    transition:
+      transform 0.12s ease,
+      border-color 0.12s ease,
+      background 0.12s ease;
+  }
+
+  .train-card:hover {
+    transform: translateY(-3px);
+    border-color: rgba(120, 170, 255, 0.9);
+    background: rgba(120, 170, 255, 0.12);
+  }
+
+  .train-icon {
+    font-size: 2rem;
+    line-height: 1;
+    color: rgba(120, 170, 255, 0.9);
+  }
+
+  .train-label {
+    font-size: 0.95rem;
+    font-weight: 600;
+    text-align: center;
   }
 </style>

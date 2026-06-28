@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import Manager from "./manager";
-  import type { CharPos, Color } from "./type";
+  import { t } from "./i18n";
   import {
     createCharCanvasLayout,
     drawCenteredChar,
@@ -12,83 +12,89 @@
     type GlyphStepResult,
   } from "./webgpu/glyph/glyphComputeWorkflow";
   import {
-    type SongLyricsBundle,
+    type SongCatalogItem,
     buildPlacementRecords,
-    downloadText,
     extractSongLyrics,
     getCharsByPhrase,
     toSongJsonl,
   } from "./webgpu/glyph/replayIO";
-  import songSource from "./webgpu/glyph/songSource";
   import {
     computeSobelEdges,
-    downloadSobelEdges,
     sobelResultToCanvas,
   } from "./webgpu/glyph/sobelFilter";
   import { setEdgeOverlay } from "./webgpu/glyph/edgeOverlayStore";
-  const songCatalog = songSource;
+  import { normalizeImageShortSide } from "./webgpu/glyph/normalizeImage";
+  import { setTrainedResult } from "./trainedStore.svelte";
 
-  const imageCatalog = songCatalog.map((song) => ({
-    id: song.imageId,
-    label: `${song.label} image`,
-  }));
+  type TrainPhase =
+    | "preparing"
+    | "extracting"
+    | "training"
+    | "finalizing"
+    | "done"
+    | "cancelled"
+    | "error";
 
+  let {
+    imageUrl,
+    song,
+    signal,
+    onPhaseChange,
+  }: {
+    /** 업로드/예시 이미지 URL (정규화 전 원본) */
+    imageUrl: string;
+    /** 선택한 곡 */
+    song: SongCatalogItem;
+    /** 부모가 소유한 취소 신호 */
+    signal?: AbortSignal;
+    /** 진행 단계 변화를 부모에 알린다 */
+    onPhaseChange: (phase: TrainPhase) => void;
+  } = $props();
+
+  const textAliveToken = "EP1gDDyqnNEHrnOD";
   const charCanvasLayout = createCharCanvasLayout();
   const charCanvasSize = charCanvasLayout.canvasPixelSize;
 
-  let finalCanvas: HTMLCanvasElement | null = null;
-  let charCanvas: HTMLCanvasElement | null = null;
+  let finalCanvas = $state<HTMLCanvasElement | null>(null);
+  let charCanvas = $state<HTMLCanvasElement | null>(null);
 
-  // 토큰 입력 UI 없이 고정 토큰 사용
-  const textAliveToken = "EP1gDDyqnNEHrnOD";
-  let selectedSongId = $state(songCatalog[0].id);
-  let selectedImageId = $state(songCatalog[0].imageId);
-  let selectedPhraseId = $state<string | null>(null);
-  let extractedBundlesBySongId = $state<Record<string, SongLyricsBundle>>({});
+  let phase = $state<TrainPhase>("preparing");
   let statusMessage = $state("");
-  let isBusy = $state(false);
-
+  let progressFraction = $state(0);
+  let currentCharIndex = $state(0);
+  let totalChars = $state(0);
   let currentChar = $state("");
-  let currentIndex = $state(0);
-  let currentDisplayCharIndex = $state(0);
 
-  let dataList = $state<CharPos[]>([]);
-  let colors = $state<Color[]>([]);
-  let diffs = $state<number[]>([]);
-  let diffRanks = $state<number[]>([]);
-  let currentCandidateIndex = $state(0);
-  let computedResults = $state<GlyphStepResult[]>([]);
+  let lastPlacement = $state<GlyphStepResult | null>(null);
+  let showDetails = $state(false);
 
-  const selectedSong = $derived(
-    songCatalog.find((song) => song.id === selectedSongId) ?? songCatalog[0],
-  );
-  const selectedBundle = $derived(
-    extractedBundlesBySongId[selectedSongId] ?? null,
-  );
-  const phraseChars = $derived(
-    selectedBundle ? getCharsByPhrase(selectedBundle, selectedPhraseId) : null,
-  );
-  const filteredText = $derived(
-    phraseChars ? phraseChars.map((char) => char.text).join("") : "",
-  );
-  const processedText = $derived(getRenderableChars(filteredText));
+  // 훈련 시간 측정용
+  let trainStartMs = 0;
+  let elapsedMs = $state(0);
+  // 예상 총 시간은 EMA로 천천히 수렴시켜 값이 출렁이지 않게 한다.
+  let smoothedTotalMs = $state(0);
+  let timer: ReturnType<typeof setInterval> | null = null;
 
-  function resetComputeState() {
-    currentIndex = 0;
-    currentDisplayCharIndex = 0;
-    dataList = [];
-    colors = [];
-    diffs = [];
-    diffRanks = [];
-    currentCandidateIndex = 0;
-    computedResults = [];
-    currentChar = processedText[0] ?? "";
-    drawText();
+  const percentText = $derived((progressFraction * 100).toFixed(1));
+  const displayCharNo = $derived(
+    totalChars === 0
+      ? 0
+      : phase === "done"
+        ? totalChars
+        : Math.min(currentCharIndex + 1, totalChars),
+  );
+
+  // 단계 변경 시 내부 상태와 부모 알림을 한 번에 처리한다.
+  function setPhase(next: TrainPhase) {
+    phase = next;
+    onPhaseChange(next);
   }
 
-  async function loadSelectedImageToCanvas() {
-    if (!finalCanvas) return;
-    await Manager.initWithImageAndCanvas(selectedSong.imageUrl, finalCanvas);
+  function formatTime(ms: number): string {
+    const totalSec = Math.max(0, Math.floor(ms / 1000));
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    return `${m}:${s.toString().padStart(2, "0")}`;
   }
 
   function drawText() {
@@ -96,338 +102,350 @@
     drawCenteredChar(charCanvas, currentChar, charCanvasLayout);
   }
 
-  async function handleSongChange() {
-    selectedImageId = selectedSong.imageId;
-    selectedPhraseId = null;
-    resetComputeState();
-    await loadSelectedImageToCanvas();
-  }
-
-  async function handleImageChange() {
-    const mappedSong = songCatalog.find(
-      (song) => song.imageId === selectedImageId,
-    );
-    if (!mappedSong) return;
-    selectedSongId = mappedSong.id;
-    selectedPhraseId = null;
-    resetComputeState();
-    await loadSelectedImageToCanvas();
-  }
-
-  async function handleExtractSelectedSongLyrics() {
-    if (!textAliveToken) {
-      statusMessage = "App.svelte에서 TextAlive token을 설정해 주세요.";
+  async function runTraining() {
+    const finalEl = finalCanvas;
+    const charEl = charCanvas;
+    if (!finalEl || !charEl) {
+      setPhase("error");
+      statusMessage = t().train.error;
       return;
     }
 
     try {
-      isBusy = true;
-      statusMessage = `${selectedSong.label} 가사를 추출 중...`;
-      const bundle = await extractSongLyrics(textAliveToken, selectedSong);
-      extractedBundlesBySongId[selectedSong.id] = bundle;
-      selectedPhraseId = null;
-      resetComputeState();
-      statusMessage = `${selectedSong.label} 가사 추출 완료`;
-    } catch (error) {
-      statusMessage = `가사 추출 실패: ${error instanceof Error ? error.message : "unknown error"}`;
-    } finally {
-      isBusy = false;
-    }
-  }
+      setPhase("preparing");
+      statusMessage = t().train.preparingImage;
+      // 짧은 변을 1080으로 맞춰 학습 데이터와 좌표 분포를 통일한다.
+      const normalizedUrl = await normalizeImageShortSide(imageUrl, 1080);
+      if (signal?.aborted) return;
+      await Manager.initWithImageAndCanvas(normalizedUrl, finalEl);
+      if (signal?.aborted) return;
 
-  async function handleCompute() {
-    if (!charCanvas || !finalCanvas) return;
+      setPhase("extracting");
+      statusMessage = `${song.label} · ${t().train.extracting}`;
+      const bundle = await extractSongLyrics(textAliveToken, song);
+      if (signal?.aborted) return;
 
-    if (processedText.length === 0) {
-      statusMessage = "계산할 텍스트가 없습니다.";
-      return;
-    }
+      const processedText = getRenderableChars(
+        bundle.chars.map((c) => c.text).join(""),
+      );
+      totalChars = processedText.length;
+      currentCharIndex = 0;
+      currentChar = processedText[0] ?? "";
+      drawText();
 
-    const nextResults: GlyphStepResult[] = [];
-    const result = await runGlyphComputeWorkflow({
-      processedText,
-      startIndex: currentIndex,
-      charCanvas,
-      textOnlyImage: finalCanvas,
-      renderChar: (char) => {
-        currentChar = char;
-        drawText();
-      },
-      onUpdate: (snapshot) => {
-        currentChar = snapshot.currentChar;
-        currentIndex = snapshot.currentIndex;
-        currentDisplayCharIndex = snapshot.currentDisplayCharIndex;
-        dataList = snapshot.dataList;
-        colors = snapshot.colors;
-        diffs = snapshot.diffs;
-        diffRanks = snapshot.diffRanks;
-      },
-      onStepResult: (stepResult) => {
-        nextResults.push(stepResult);
-      },
-    });
+      if (processedText.length === 0) {
+        setPhase("error");
+        statusMessage = t().train.noText;
+        return;
+      }
 
-    currentChar = result.currentChar;
-    currentIndex = result.currentIndex;
-    currentDisplayCharIndex = result.currentDisplayCharIndex;
-    dataList = result.dataList;
-    colors = result.colors;
-    diffs = result.diffs;
-    diffRanks = result.diffRanks;
-    computedResults = nextResults;
-    statusMessage = `compute 완료 (${computedResults.length} steps)`;
-    drawText();
-  }
-
-  function handleExportSelectedSongJsonl() {
-    if (!selectedBundle) {
-      statusMessage = "먼저 선택 곡 가사를 추출해 주세요.";
-      return;
-    }
-    if (computedResults.length === 0) {
-      statusMessage = "먼저 compute를 완료해 주세요.";
-      return;
-    }
-
-    const charsForPlacement = getCharsByPhrase(
-      selectedBundle,
-      selectedPhraseId,
-    );
-    const placements = buildPlacementRecords(
-      selectedBundle.song.songId,
-      charsForPlacement,
-      computedResults,
-    );
-    downloadText(
-      toSongJsonl(selectedBundle, placements),
-      `${selectedBundle.song.songId}.jsonl`,
-    );
-    statusMessage = `${selectedBundle.song.songId}.jsonl 내보내기 완료`;
-  }
-
-  async function handleSobelEdges() {
-    if (!Manager.imageTexture) {
-      statusMessage = "먼저 이미지를 불러와 주세요.";
-      return;
-    }
-
-    try {
-      isBusy = true;
-      statusMessage = "Sobel 윤곽선 추출 중...";
-      const result = await computeSobelEdges();
-      // Pixi 프리뷰에서 오버레이로 쓸 수 있도록 캔버스 형태로 메모리에 저장한다.
-      setEdgeOverlay({
-        id: selectedSongId,
-        width: result.width,
-        height: result.height,
-        source: sobelResultToCanvas(result),
+      setPhase("training");
+      statusMessage = t().train.training;
+      trainStartMs = performance.now();
+      const results: GlyphStepResult[] = [];
+      await runGlyphComputeWorkflow({
+        processedText,
+        startIndex: 0,
+        charCanvas: charEl,
+        textOnlyImage: finalEl,
+        renderChar: (char) => {
+          currentChar = char;
+          drawText();
+        },
+        onProgress: (progress) => {
+          progressFraction = progress.fraction;
+          currentCharIndex = progress.charIndex;
+        },
+        onStepResult: (result) => {
+          results.push(result);
+          // 한 글자의 최종 위치가 확정된 시점에만 상세 정보를 갱신한다.
+          lastPlacement = result;
+        },
+        signal,
       });
-      await downloadSobelEdges(result, `${selectedSongId}-edges.png`);
-      statusMessage = "Sobel 윤곽선 추출 완료 (메모리 저장 + 다운로드)";
+
+      if (signal?.aborted) {
+        setPhase("cancelled");
+        statusMessage = t().train.cancelled;
+        return;
+      }
+      progressFraction = 1;
+
+      setPhase("finalizing");
+      statusMessage = t().train.finalizing;
+      // 1) 배치 결과 + 가사를 jsonl 문자열로 만든다.
+      const chars = getCharsByPhrase(bundle, null);
+      const placements = buildPlacementRecords(
+        bundle.song.songId,
+        chars,
+        results,
+      );
+      const jsonlRaw = toSongJsonl(bundle, placements);
+
+      // 2) Sobel 윤곽선을 추출해 오버레이용 캔버스/데이터 URL로 변환한다.
+      const sobel = await computeSobelEdges();
+      const edgeCanvas = sobelResultToCanvas(sobel);
+      const edgeUrl = edgeCanvas.toDataURL("image/png");
+      setEdgeOverlay({
+        id: song.id,
+        width: sobel.width,
+        height: sobel.height,
+        source: edgeCanvas,
+      });
+
+      // 3) 메모리에 저장해 PixiPreviewPage에서 다른 곡처럼 재생할 수 있게 한다.
+      //    재생 시 좌표/비율이 맞도록 이미지는 정규화본으로 덮어쓴다.
+      setTrainedResult({
+        song: { ...song, imageUrl: normalizedUrl },
+        jsonlRaw,
+        edgeUrl,
+      });
+
+      setPhase("done");
+      statusMessage = t().train.done;
     } catch (error) {
-      statusMessage = `Sobel 추출 실패: ${error instanceof Error ? error.message : "unknown error"}`;
-    } finally {
-      isBusy = false;
+      if (signal?.aborted) {
+        setPhase("cancelled");
+        statusMessage = t().train.cancelled;
+        return;
+      }
+      setPhase("error");
+      statusMessage = `${t().train.error}: ${
+        error instanceof Error ? error.message : "unknown error"
+      }`;
     }
   }
 
-  onMount(async () => {
-    finalCanvas = document.getElementById(
-      "final-canvas",
-    ) as HTMLCanvasElement | null;
-    charCanvas = document.getElementById(
-      "char-canvas",
-    ) as HTMLCanvasElement | null;
-    await loadSelectedImageToCanvas();
-    resetComputeState();
+  onMount(() => {
+    void runTraining();
+    timer = setInterval(() => {
+      if (
+        trainStartMs > 0 &&
+        (phase === "training" || phase === "finalizing")
+      ) {
+        elapsedMs = performance.now() - trainStartMs;
+        // 진행률이 어느 정도 쌓인 뒤부터 예상치를 천천히 갱신한다.
+        if (progressFraction > 0.01) {
+          const raw = elapsedMs / progressFraction;
+          smoothedTotalMs =
+            smoothedTotalMs > 0 ? smoothedTotalMs * 0.92 + raw * 0.08 : raw;
+        }
+      }
+    }, 200);
+  });
+
+  onDestroy(() => {
+    if (timer) clearInterval(timer);
   });
 </script>
 
-<div class="app-container">
-  <div class="result-container">
-    <canvas id="final-canvas" class="result-canvas"></canvas>
+<div class="train-root">
+  <div class="result-wrap">
+    <canvas bind:this={finalCanvas} class="result-canvas"></canvas>
   </div>
 
-  <div class="container">
-    <div>
-      <div class="toolbar">
-        <label class="field">
-          <span>Song</span>
-          <select bind:value={selectedSongId} onchange={handleSongChange}>
-            {#each songCatalog as song (song.id)}
-              <option value={song.id}>{song.label}</option>
-            {/each}
-          </select>
-        </label>
+  <div class="progress-row">
+    <canvas
+      bind:this={charCanvas}
+      width={charCanvasSize}
+      height={charCanvasSize}
+      class="char-canvas"
+    ></canvas>
 
-        <label class="field">
-          <span>Image</span>
-          <select bind:value={selectedImageId} onchange={handleImageChange}>
-            {#each imageCatalog as image (image.id)}
-              <option value={image.id}>{image.label}</option>
-            {/each}
-          </select>
-        </label>
-
-        <div class="field">
-          <span>Edge overlay</span>
-          <button onclick={handleSobelEdges} disabled={isBusy}>
-            sobel 윤곽선 추출 & 다운로드
-          </button>
-        </div>
-      </div>
-
-      <canvas
-        id="char-canvas"
-        width={charCanvasSize}
-        height={charCanvasSize}
-        class="char-canvas"
-      ></canvas>
-      <div class="button-row">
-        <button onclick={handleExtractSelectedSongLyrics} disabled={isBusy}>
-          extract selected song lyrics
-        </button>
-      </div>
-      <div class="button-row">
-        <button onclick={handleCompute} disabled={isBusy || !selectedBundle}>
-          compute
-        </button>
-        <button
-          onclick={handleExportSelectedSongJsonl}
-          disabled={isBusy || !selectedBundle || computedResults.length === 0}
+    <div class="progress-card">
+      <div class="progress-head">
+        <span class="count"
+          >{displayCharNo} / {totalChars} {t().train.charUnit}</span
         >
-          save processed jsonl
-        </button>
+        <span class="pct">{percentText}%</span>
       </div>
-      <p>computed steps: {computedResults.length}</p>
-      <p>renderable chars: {processedText.length}</p>
-      {#if statusMessage}
-        <p class="status">{statusMessage}</p>
-      {/if}
+      <div class="bar">
+        <div class="bar-fill" style="width: {progressFraction * 100}%"></div>
+      </div>
+      <div class="time-row">
+        <span>{t().train.elapsed}: {formatTime(elapsedMs)}</span>
+        <span>
+          {t().train.estimatedTotal}:
+          {smoothedTotalMs > 0 ? formatTime(smoothedTotalMs) : "--:--"}
+        </span>
+      </div>
+      <p class="status">{statusMessage}</p>
     </div>
+  </div>
 
-    <div>
-      <div>
-        <p>Text: {currentDisplayCharIndex}</p>
-        <p>Current: {currentChar}</p>
-        <p>Index: {currentIndex}</p>
-        {#if diffRanks.length > 0}
-          {@const idx = diffRanks[currentCandidateIndex]}
-          <p>Candidate {diffRanks.length} created</p>
-          <table>
-            <tbody>
-              <tr>
-                <th> index </th>
-                <td>{idx + 1}</td>
-              </tr>
-              <tr>
-                <th> x </th>
-                <td>{dataList[idx].x.toFixed(2)}</td>
-              </tr>
-              <tr>
-                <th> y </th>
-                <td>{dataList[idx].y.toFixed(2)}</td>
-              </tr>
-              <tr>
-                <th> scale </th>
-                <td>{dataList[idx].scale.toFixed(2)}</td>
-              </tr>
-              <tr>
-                <th> opacity </th>
-                <td>{dataList[idx].opacity.toFixed(2)}</td>
-              </tr>
-              <tr>
-                <th> rotation </th>
-                <td>{dataList[idx].rotation.toFixed(2)}</td>
-              </tr>
-              <tr>
-                <th> diff </th>
-                <td>{diffs[idx]}</td>
-              </tr>
-              <tr>
-                <th> color </th>
-                <td>{colors[idx].map((c) => Math.trunc(c * 255)).join(", ")}</td
-                >
-              </tr>
-            </tbody>
-          </table>
-        {/if}
-      </div>
-    </div>
+  <div class="detail">
+    <button
+      type="button"
+      class="detail-toggle"
+      onclick={() => (showDetails = !showDetails)}
+    >
+      {showDetails ? t().train.hideDetails : t().train.showDetails}
+    </button>
+
+    {#if showDetails}
+      {#if lastPlacement}
+        <table>
+          <tbody>
+            <tr><th>step</th><td>{lastPlacement.step + 1}</td></tr>
+            <tr><th>char</th><td>{lastPlacement.char}</td></tr>
+            <tr><th>x</th><td>{lastPlacement.pos.x.toFixed(2)}</td></tr>
+            <tr><th>y</th><td>{lastPlacement.pos.y.toFixed(2)}</td></tr>
+            <tr><th>scale</th><td>{lastPlacement.pos.scale.toFixed(2)}</td></tr>
+            <tr>
+              <th>opacity</th><td>{lastPlacement.pos.opacity.toFixed(2)}</td>
+            </tr>
+            <tr>
+              <th>rotation</th><td>{lastPlacement.pos.rotation.toFixed(2)}</td>
+            </tr>
+            <tr><th>diff</th><td>{lastPlacement.diff}</td></tr>
+            <tr>
+              <th>color</th>
+              <td>
+                {lastPlacement.color
+                  .map((c) => Math.trunc(c * 255))
+                  .join(", ")}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      {:else}
+        <p class="muted">{t().train.detailEmpty}</p>
+      {/if}
+    {/if}
   </div>
 </div>
 
 <style>
-  .app-container {
+  .train-root {
     width: 100%;
-    height: 100%;
     display: flex;
     flex-direction: column;
-    justify-content: center;
-    align-items: center;
-    gap: 12px;
+    gap: 16px;
+    color: #fff;
   }
 
-  .result-container {
-    width: min(90vw, 960px);
-  }
-
-  canvas {
-    border: 1px solid black;
+  .result-wrap {
+    width: 100%;
   }
 
   .result-canvas {
     width: 100%;
     display: block;
     background-color: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 12px;
+  }
+
+  .progress-row {
+    display: flex;
+    gap: 16px;
+    align-items: stretch;
+    flex-wrap: wrap;
   }
 
   .char-canvas {
-    width: 200px;
+    width: 120px;
+    height: 120px;
     background-color: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    flex: 0 0 auto;
   }
 
-  .toolbar {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-bottom: 8px;
-  }
-
-  .field {
+  .progress-card {
+    flex: 1 1 240px;
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    min-width: 220px;
+    gap: 8px;
+    padding: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.04);
   }
 
-  .field select {
-    padding: 6px 8px;
-  }
-
-  .button-row button {
-    padding: 4px 8px;
-  }
-
-  .button-row {
+  .progress-head {
     display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-top: 6px;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+
+  .count {
+    font-size: 0.95rem;
+    color: rgba(255, 255, 255, 0.8);
+  }
+
+  .pct {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: #8fbcff;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .bar {
+    width: 100%;
+    height: 10px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.1);
+    overflow: hidden;
+  }
+
+  .bar-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #6aa0ff, #8fbcff);
+    transition: width 0.2s ease;
+  }
+
+  .time-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 0.8rem;
+    color: rgba(255, 255, 255, 0.6);
+    font-variant-numeric: tabular-nums;
   }
 
   .status {
-    max-width: 560px;
-    color: #134c8c;
+    margin: 0;
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.6);
   }
 
-  .container {
-    margin: 0 auto;
-    display: flex;
-    flex-direction: row;
-    justify-content: center;
-    align-items: center;
-    gap: 10px;
-    width: min(90vw, 960px);
+  .detail-toggle {
+    padding: 6px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: transparent;
+    color: rgba(255, 255, 255, 0.8);
+    cursor: pointer;
+    font-size: 0.82rem;
+  }
+
+  .detail-toggle:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .detail table {
+    margin-top: 12px;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+  }
+
+  .detail th,
+  .detail td {
+    padding: 4px 12px;
+    text-align: left;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .detail th {
+    color: rgba(255, 255, 255, 0.5);
+    font-weight: 500;
+  }
+
+  .muted {
+    margin: 12px 0 0;
+    font-size: 0.85rem;
+    color: rgba(255, 255, 255, 0.45);
   }
 </style>

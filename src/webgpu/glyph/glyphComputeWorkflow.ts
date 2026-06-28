@@ -23,6 +23,19 @@ export interface GlyphStepResult {
   diff: number;
 }
 
+export interface GlyphProgress {
+  /** 현재 훈련 중인 글자 인덱스 (0-base) */
+  charIndex: number;
+  /** 전체 렌더 대상 글자 수 */
+  totalChars: number;
+  /** 현재 글자에서 진행한 epoch 수 (1-base) */
+  epoch: number;
+  /** 한 글자당 총 epoch 수 */
+  epochNum: number;
+  /** 0~1 사이의 전체 진행률 (글자 + epoch 단위로 세분화) */
+  fraction: number;
+}
+
 export interface GlyphComputeOptions {
   processedText: string[];
   startIndex: number;
@@ -31,6 +44,10 @@ export interface GlyphComputeOptions {
   renderChar: (char: string) => void;
   onUpdate?: (snapshot: GlyphComputeSnapshot) => void;
   onStepResult?: (result: GlyphStepResult) => void;
+  /** epoch 단위로 호출되는 진행률 콜백 */
+  onProgress?: (progress: GlyphProgress) => void;
+  /** 훈련 도중 취소를 위한 신호. aborted 되면 가능한 빨리 루프를 종료한다. */
+  signal?: AbortSignal;
 }
 
 function rankByDifference(diffArray: number[]): number[] {
@@ -88,6 +105,8 @@ export async function runGlyphComputeWorkflow(options: GlyphComputeOptions) {
   };
 
   for (let c = 0; c < displayCharNum; c++) {
+    if (options.signal?.aborted) break;
+
     const charCurrentScale =
       charScaleForStep(c * config.scaleStepFactor, config) -
       config.charScaleVariance;
@@ -110,6 +129,8 @@ export async function runGlyphComputeWorkflow(options: GlyphComputeOptions) {
 
     try {
       for (let i = 0; i < config.epochNum; i++) {
+        if (options.signal?.aborted) break;
+
         const sampleAvgColors = await computeColor(
           dataCandidateList,
           options.charCanvas,
@@ -149,7 +170,16 @@ export async function runGlyphComputeWorkflow(options: GlyphComputeOptions) {
         }
 
         options.onUpdate?.({ ...snapshot });
+        options.onProgress?.({
+          charIndex: c,
+          totalChars: displayCharNum,
+          epoch: i + 1,
+          epochNum: config.epochNum,
+          fraction: (c + (i + 1) / config.epochNum) / displayCharNum,
+        });
       }
+
+      if (options.signal?.aborted) break;
 
       snapshot.diffs = diffArray;
       const topIndex = snapshot.diffRanks[0];

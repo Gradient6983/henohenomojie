@@ -1,12 +1,8 @@
 import { mount } from "svelte";
 import "./app.css";
-import App from "./App.svelte";
-import PixiPreviewPage from "./PixiPreviewPage.svelte";
+import Root from "./Root.svelte";
 
-const pathname = window.location.pathname.replace(/\/+$/, "");
-const Component = pathname.endsWith("/pixi-preview") ? PixiPreviewPage : App;
-
-const app = mount(Component, {
+const app = mount(Root, {
   target: document.getElementById("app")!,
 });
 
