@@ -11,6 +11,8 @@
     type IVideo,
   } from "textalive-app-api";
   import { t } from "./i18n";
+  import SettingsMenu from "./SettingsMenu.svelte";
+  import * as settings from "./settingsStore.svelte";
   import type { SongCatalogItem } from "./webgpu/glyph/replayIO";
   import {
     createCharCanvasLayout,
@@ -156,6 +158,11 @@
       /* 탐색이 완료되면 호출 (최종 위치로 한 번만 동기화) */
       onSeekComplete(position: number) {
         endSeek(position);
+      },
+
+      /* 음량이 (배너 등 외부에서) 바뀌면 전역 설정에 동기화한다 */
+      onVolumeUpdate(level: number) {
+        settings.setVolume(level);
       },
     });
   });
@@ -308,10 +315,12 @@
     return index;
   });
 
-  // 별자리/강조 모드 on/off. 컨트롤 바의 "별자리" 버튼으로 토글한다.
-  let highlightMode = $state(false);
-  // 윤곽선(Sobel edge) 오버레이 표시 여부. 컨트롤 바의 "윤곽선" 버튼으로 토글한다.
-  let showEdges = $state(false);
+  // 별자리/강조 모드, 윤곽선 표시, 윤곽선 투명도, 음량은 전역 설정 스토어에서 읽는다.
+  // (설정 패널에서 값을 바꾸면 이 파생값들이 자동으로 갱신된다)
+  const highlightMode = $derived(settings.getConstellation());
+  const showEdges = $derived(settings.getShowEdges());
+  const edgeOpacity = $derived(settings.getEdgeOpacity());
+  const volume = $derived(settings.getVolume());
 
   // 모드가 켜져 있으면 강조 줄은 "현재 재생 중인 줄"을 자동으로 따라간다.
   // 다음 줄로 넘어가면 이전 줄 글자는 흐려지고 현재 줄 글자가 또렷해진다.
@@ -364,16 +373,6 @@
     if (!el) return;
     el.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
   });
-
-  // 별자리(강조) 모드 토글. 켜지면 현재 재생 중인 줄을 자동으로 따라가며 강조한다.
-  function toggleHighlightMode() {
-    highlightMode = !highlightMode;
-  }
-
-  // 윤곽선 오버레이 토글.
-  function toggleEdges() {
-    showEdges = !showEdges;
-  }
 
   // Pixi tint는 원본 텍스처 색과 곱해지므로, 흰색 글자로 만들어야 color 값이 보존된다.
   const charLayout = createCharCanvasLayout({
@@ -782,9 +781,20 @@
     redrawConstellation(phraseId);
   });
 
-  // 윤곽선 오버레이 표시/숨김 토글을 스프라이트에 반영한다.
+  // 윤곽선 오버레이 표시/숨김 + 투명도(전역 설정)를 스프라이트에 반영한다.
   $effect(() => {
-    if (edgeSprite) edgeSprite.visible = showEdges;
+    if (!edgeSprite) return;
+    edgeSprite.visible = showEdges;
+    edgeSprite.alpha = edgeOpacity;
+  });
+
+  // 음량(전역 설정)을 TextAlive 플레이어에 반영한다.
+  // playerReady가 true가 된 뒤부터 textAlivePlayer가 존재하므로 그때 최초 적용된다.
+  $effect(() => {
+    const level = volume;
+    if (textAlivePlayer && playerReady) {
+      textAlivePlayer.volume = level;
+    }
   });
 
   function syncPlacementsToTime(position: number) {
@@ -983,8 +993,8 @@
     const sprite = new PIXI.Sprite(texture);
     sprite.width = baseWidth;
     sprite.height = baseHeight;
-    sprite.alpha = 0.3;
-    sprite.visible = showEdges;
+    sprite.alpha = settings.getEdgeOpacity();
+    sprite.visible = settings.getShowEdges();
     // 오버레이는 포인터 이벤트(드래그/줌)를 가로채지 않도록 한다.
     sprite.eventMode = "none";
     camera.addChild(sprite);
@@ -1107,60 +1117,75 @@
   {/if}
 
   <div class="controls">
-    <button class="back" onclick={onBack}> ← {t().player.backToSelect} </button>
+    <button
+      class="icon-btn"
+      onclick={onBack}
+      title={t().player.backToSelect}
+      aria-label={t().player.backToSelect}
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <line x1="19" y1="12" x2="5" y2="12" />
+        <polyline points="12 19 5 12 12 5" />
+      </svg>
+    </button>
 
-    <button onclick={handlePlay} disabled={!playerReady || isPlaying}>
-      ▶ {t().player.play}
-    </button>
-    <button onclick={handlePause} disabled={!playerReady || !isPlaying}>
-      ⏸ {t().player.pause}
-    </button>
-    <button onclick={handleRestart} disabled={!playerReady}>
-      ⏮ {t().player.restart}
+    <span class="divider"></span>
+
+    <button
+      class="icon-btn"
+      onclick={handleRestart}
+      disabled={!playerReady}
+      title={t().player.restart}
+      aria-label={t().player.restart}
+    >
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <polygon points="18 5 9 12 18 19" fill="currentColor" stroke="none" />
+        <line x1="6" y1="5" x2="6" y2="19" />
+      </svg>
     </button>
 
     <button
-      class="toggle"
-      class:active={showEdges}
-      onclick={toggleEdges}
-      disabled={!edgeUrl}
+      class="icon-btn play-btn"
+      onclick={isPlaying ? handlePause : handlePlay}
+      disabled={!playerReady}
+      title={isPlaying ? t().player.pause : t().player.play}
+      aria-label={isPlaying ? t().player.pause : t().player.play}
     >
-      ✦ {t().player.edges}
-    </button>
-    <button
-      class="toggle"
-      class:active={highlightMode}
-      onclick={toggleHighlightMode}
-    >
-      ☆ {t().player.constellation}
+      {#if isPlaying}
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <rect x="6" y="5" width="4" height="14" fill="currentColor" stroke="none" />
+          <rect x="14" y="5" width="4" height="14" fill="currentColor" stroke="none" />
+        </svg>
+      {:else}
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <polygon points="7 4 20 12 7 20" fill="currentColor" stroke="none" />
+        </svg>
+      {/if}
     </button>
 
-    <span class="status">
-      {song.label} — {formatTime(playbackPosition)} / {formatTime(
-        playbackDuration,
-      )}
-      ({shownCount}{t().player.charCountSuffix})
-    </span>
+    <div class="timeline">
+      <span class="time">{formatTime(playbackPosition)}</span>
+      <input
+        type="range"
+        min="0"
+        max={playbackDuration || 0}
+        step="100"
+        value={playbackPosition}
+        disabled={!playerReady || playbackDuration <= 0}
+        oninput={handleScrub}
+        onchange={handleSeekCommit}
+      />
+      <span class="time">{formatTime(playbackDuration)}</span>
+    </div>
 
-    {#if playerError}
-      <span class="error">{playerError}</span>
-    {/if}
+    <span class="divider"></span>
+
+    <SettingsMenu showDisplayEffects edgeAvailable={!!edgeUrl} />
   </div>
 
-  <div class="seekbar">
-    <span class="time">{formatTime(playbackPosition)}</span>
-    <input
-      type="range"
-      min="0"
-      max={playbackDuration || 0}
-      step="100"
-      value={playbackPosition}
-      disabled={!playerReady || playbackDuration <= 0}
-      oninput={handleScrub}
-      onchange={handleSeekCommit}
-    />
-    <span class="time">{formatTime(playbackDuration)}</span>
-  </div>
+  {#if playerError}
+    <div class="error-toast">{playerError}</div>
+  {/if}
 
   <div class="media" bind:this={media}></div>
 </div>
@@ -1192,30 +1217,31 @@
     overflow: hidden;
   }
 
-  /* 오른쪽에 정렬된 가사 패널. 시야를 크게 가리지 않도록 폭을 제한하고,
-     위/아래 가장자리는 마스크로 서서히 사라지게 한다. */
+  /* 화면 가운데 아래쪽에 떠 있는 가사 패널. 한 번에 약 세 줄만 보이도록
+     높이를 제한하고, 위/아래 가장자리는 마스크로 서서히 사라지게 한다. */
   .lyrics-panel {
     position: fixed;
-    top: 64px;
-    right: 0;
-    bottom: 72px;
+    left: 50%;
+    bottom: 9%;
+    transform: translateX(-50%);
     z-index: 9;
-    width: clamp(240px, 30vw, 420px);
+    width: min(90vw, 760px);
+    height: clamp(6.5rem, 19vh, 8.5rem);
     overflow-y: auto;
     overflow-x: hidden;
     scrollbar-width: none;
     -webkit-mask-image: linear-gradient(
       to bottom,
       transparent 0%,
-      #000 16%,
-      #000 84%,
+      #000 26%,
+      #000 74%,
       transparent 100%
     );
     mask-image: linear-gradient(
       to bottom,
       transparent 0%,
-      #000 16%,
-      #000 84%,
+      #000 26%,
+      #000 74%,
       transparent 100%
     );
   }
@@ -1224,33 +1250,31 @@
     display: none;
   }
 
-  /* 첫/마지막 줄도 중앙까지 올라올 수 있도록 위아래로 큰 여백을 둔다.
-     왼쪽 여백은 활성 줄이 scale 확대될 때(원점이 오른쪽이라 왼쪽으로 커짐)
-     패널 경계에 잘리지 않도록 넉넉히 확보한다. */
+  /* 첫/마지막 줄도 중앙까지 올라올 수 있도록 위아래로 패널 높이의 절반만큼 여백을 둔다. */
   .lyrics-list {
     display: flex;
     flex-direction: column;
-    align-items: flex-end;
+    align-items: center;
     gap: 6px;
-    padding: 42vh 24px 42vh 56px;
+    padding: clamp(2.6rem, 8vh, 3.6rem) 24px;
   }
 
   .lyric-line {
-    padding: 6px 4px;
+    padding: 4px 8px;
     margin: 0;
-    width: 100%;
-    text-align: right;
+    max-width: 100%;
+    text-align: center;
     color: #fff;
     font-size: 1.05rem;
     font-weight: 600;
-    line-height: 1.45;
+    line-height: 1.4;
     letter-spacing: 0.01em;
     /* 가사는 단순 표시용이라 클릭 동작이 없다. */
     cursor: default;
     user-select: none;
     opacity: 0.42;
     transform: scale(0.94);
-    transform-origin: right center;
+    transform-origin: center center;
     /* 단색 글자가 배경과 겹쳐도 보이도록 진한 외곽 그림자를 준다. */
     text-shadow:
       0 0 2px rgba(0, 0, 0, 0.95),
@@ -1260,10 +1284,6 @@
       opacity 0.45s cubic-bezier(0.22, 1, 0.36, 1),
       transform 0.45s cubic-bezier(0.22, 1, 0.36, 1),
       color 0.45s ease;
-  }
-
-  .lyric-line:hover {
-    opacity: 0.8;
   }
 
   /* 이미 지나간 가사는 더 흐리게 */
@@ -1298,85 +1318,137 @@
     }
   }
 
+  /* 상단 가운데에 떠 있는 음악 플레이어 바. 재생 컨트롤과 탐색 타임라인을 한 줄에 모은다. */
   .controls {
     position: fixed;
-    top: 12px;
+    top: 16px;
     left: 50%;
     transform: translateX(-50%);
     z-index: 10;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
+    width: min(720px, calc(100% - 32px));
     padding: 8px 12px;
-    background: rgba(0, 0, 0, 0.6);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 10px;
+    background: rgba(14, 14, 20, 0.62);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 999px;
     color: #fff;
-    backdrop-filter: blur(6px);
+    backdrop-filter: blur(10px);
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
   }
 
-  button {
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.12);
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    border: none;
+    border-radius: 999px;
+    background: transparent;
     color: #fff;
-    padding: 6px 10px;
     cursor: pointer;
+    transition:
+      background 0.15s ease,
+      color 0.15s ease,
+      transform 0.1s ease;
   }
 
-  button:disabled {
-    opacity: 0.45;
+  .icon-btn svg {
+    width: 20px;
+    height: 20px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .icon-btn:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.14);
+  }
+
+  .icon-btn:active:not(:disabled) {
+    transform: scale(0.92);
+  }
+
+  .icon-btn:disabled {
+    opacity: 0.4;
     cursor: default;
   }
 
-  button.toggle.active {
-    background: rgba(120, 180, 255, 0.38);
-    border-color: rgba(160, 205, 255, 0.85);
-    box-shadow: 0 0 10px rgba(120, 180, 255, 0.45);
+  /* 재생/정지 버튼은 메인 액션이라 흰색 원형으로 강조한다. */
+  .play-btn {
+    width: 44px;
+    height: 44px;
+    background: #fff;
+    color: #111;
   }
 
-  .status {
-    font-size: 0.9rem;
-    white-space: nowrap;
+  .play-btn svg {
+    width: 22px;
+    height: 22px;
   }
 
-  .seekbar {
-    position: fixed;
-    left: 50%;
-    bottom: 16px;
-    transform: translateX(-50%);
-    z-index: 10;
+  .play-btn:hover:not(:disabled) {
+    background: #fff;
+    transform: scale(1.05);
+  }
+
+  .play-btn:disabled {
+    background: rgba(255, 255, 255, 0.4);
+  }
+
+  .divider {
+    flex: none;
+    width: 1px;
+    height: 22px;
+    background: rgba(255, 255, 255, 0.16);
+    margin: 0 2px;
+  }
+
+  .timeline {
     display: flex;
     align-items: center;
-    gap: 12px;
-    width: min(900px, calc(100% - 48px));
-    padding: 10px 16px;
-    background: rgba(0, 0, 0, 0.6);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 10px;
-    color: #fff;
-    backdrop-filter: blur(6px);
+    gap: 10px;
+    flex: 1;
+    min-width: 0;
+    padding: 0 6px;
   }
 
-  .seekbar input[type="range"] {
+  .timeline input[type="range"] {
     flex: 1;
     width: auto;
+    min-width: 0;
+    height: 4px;
     cursor: pointer;
     accent-color: #fff;
   }
 
-  .seekbar input[type="range"]:disabled {
+  .timeline input[type="range"]:disabled {
     cursor: default;
     opacity: 0.45;
   }
 
   .time {
-    font-size: 0.85rem;
+    font-size: 0.78rem;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
+    color: rgba(255, 255, 255, 0.75);
   }
 
-  .error {
+  .error-toast {
+    position: fixed;
+    top: 72px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 11;
+    padding: 8px 14px;
+    border-radius: 8px;
+    background: rgba(40, 0, 0, 0.8);
     color: #ff8a8a;
     font-size: 0.85rem;
     white-space: nowrap;

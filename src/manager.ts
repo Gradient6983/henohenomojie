@@ -8,8 +8,6 @@ import {
 import type { CharPosRange } from "./type";
 import { getFilledCanvas } from "./util";
 
-const root = await tgpu.init();
-
 export default class Manager {
   static readonly textureFormat = "rgba16float" as const;
   static readonly nearestSamplerDescriptor = {
@@ -52,7 +50,9 @@ export default class Manager {
     invalidPenalty: 1e9,
   } as const;
 
-  static root: TgpuRoot = root;
+  // WebGPU 루트. 모듈 로드 시점이 아니라 실제로 훈련을 시작할 때 초기화한다.
+  // (이렇게 해야 WebGPU 미지원 브라우저에서도 홈 화면 자체는 정상적으로 뜬다.)
+  static root: TgpuRoot;
   /** 원본 이미지 배경 */
   static imageTexture: TgpuTexture;
   static imageView: TgpuTextureView<d.WgslTexture2d<d.F32>>;
@@ -75,6 +75,17 @@ export default class Manager {
   static canvasHeight: number;
   /** 글자 크기 */
   static charSize: number;
+
+  /**
+   * WebGPU 루트를 보장한다. 최초 호출 시에만 tgpu.init()을 수행하고 이후엔 캐시한다.
+   * WebGPU를 사용할 수 없는 환경이면 tgpu.init()이 throw 하므로 호출 측에서 처리해야 한다.
+   */
+  static async ensureRoot(): Promise<TgpuRoot> {
+    if (!Manager.root) {
+      Manager.root = await tgpu.init();
+    }
+    return Manager.root;
+  }
 
   /** 이미지 로드 */
   static async loadImage(imageLink: string) {
@@ -213,6 +224,7 @@ export default class Manager {
     imageLink: string,
     outputCanvas: HTMLCanvasElement,
   ) {
+    await Manager.ensureRoot();
     await Manager.loadImage(imageLink);
     Manager.initSizes();
     Manager.initTexture();
