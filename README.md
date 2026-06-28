@@ -16,7 +16,8 @@
 - **Svelte 5** (runes 문법) + **Vite** 기반 SPA
 - **TypeGPU / WebGPU**: 글자 위치 탐색 및 이미지 비교 연산
 - **PixiJS 8**: 추출된 글자 배치를 캔버스에 렌더링
-- **TextAlive App API**: 곡 가사 및 타이밍 데이터 추출
+- **TextAlive App API**: 곡 가사 및 타이밍 데이터 추출, 실시간 재생 제어
+- **자체 경량 i18n 모듈** (`src/i18n`): 다국어 UI 문자열 관리 (외부 라이브러리 없음)
 
 # 페이지 구성
 
@@ -25,28 +26,46 @@
 | 경로            | 컴포넌트                 | 역할                                         |
 | --------------- | ------------------------ | -------------------------------------------- |
 | `/` (기본)      | `App.svelte`             | WebGPU 글자 위치 추출 / JSONL 내보내기 도구  |
-| `/pixi-preview` | `PixiPreviewPage.svelte` | 추출된 JSONL을 PixiJS 캔버스에 재생/미리보기 |
+| `/pixi-preview` | `PixiPreviewPage.svelte` | 곡 선택 화면 → 선택한 곡의 JSONL을 음악에 맞춰 재생/미리보기 |
 
 ## 1. WebGPU 추출 페이지 (`App.svelte`)
 
 곡 이미지 + TextAlive 가사 데이터를 입력받아, 위 "실행 과정"의 연산을 수행하고 각 글자의 최적 배치(`placement`)를 계산한다.
 
-- 곡/이미지 선택 및 phrase 단위 필터링
+- 곡/이미지 선택 (진화 알고리즘은 항상 **전체 가사**에 대해 수행)
+- `extract selected song lyrics` → TextAlive에서 가사·타이밍 추출
 - `compute` 실행 → 글자별 위치/색상/diff 계산
 - 결과를 `<songId>.jsonl` 파일로 내보내기 (`save processed jsonl`)
 
-## 2. PixiJS 미리보기 페이지 (`PixiPreviewPage.svelte`)
+## 2. 재생/미리보기 페이지 (`PixiPreviewPage.svelte` → `GlyphPlayer.svelte`)
 
-추출 단계에서 만들어진 JSONL을 불러와, `placement` 레코드를 순서대로 캔버스에 표시한다.
+`/pixi-preview` 진입 시 먼저 **곡 선택 화면**(`PixiPreviewPage.svelte`)이 표시되고, 곡을 고르면 **재생 화면**(`GlyphPlayer.svelte`)으로 전환된다.
 
-- **전체화면 캔버스**: 화면을 꽉 채우며 스크롤바가 생기지 않음
-- **비율 유지 축소**: 리사이즈 시 기준 해상도(`1920x1080`)에 맞춰 카메라 스케일을 조정하므로 글자 크기 비율이 유지됨
-- **이전 / 다음 / 리셋**: `다음`은 다음 글자 1개 추가, `이전`은 마지막 글자 1개 제거, `리셋`은 전체 제거 + 뷰 초기화
-- **팬 / 줌**: 캔버스 위에서 드래그로 이동, 휠로 (포인터 기준) 확대·축소
-- **글자 텍스처 재사용**: `textCanvas.ts`의 `createCharCanvasLayout` / `drawCenteredChar`로 글자를 흰색으로 그린 뒤, `placement.color`를 PixiJS `tint`(곱셈 합성)로 입힌다. 같은 글자는 `Map` 캐시로 재사용
-- **JSONL import**: 현재는 `src/assets/jsonl_こたえて _ imie.jsonl`을 `?raw`로 직접 import
+### 곡 선택 화면 (`PixiPreviewPage.svelte`)
 
-> TextAlive API 연동(실시간 재생 시각에 맞춘 자동 표시)은 다음 단계 작업으로 예정.
+- `src/assets/*.jsonl`을 `import.meta.glob`로 **모두 자동 로드**하고, 각 파일 첫 `song` 레코드의 `songId`로 매핑한다.
+- `songSource`의 모든 곡을 카드 그리드로 표시하며, **JSONL 데이터가 있는 곡만 "재생 가능"** 으로 활성화된다(없으면 "준비 중" 배지).
+- 새 곡을 추가하려면 `songId`가 일치하는 JSONL을 `src/assets`에 넣기만 하면 코드 수정 없이 자동 인식된다.
+
+### 재생 화면 (`GlyphPlayer.svelte`)
+
+- **음악 동기화 재생**: TextAlive Player로 실제 곡을 재생하며, `onTimeUpdate`의 현재 재생 위치에 맞춰 정렬된 `placement`를 추가/제거한다.
+- **재생 컨트롤**: `재생` / `정지` / `처음으로`(stop) 버튼.
+- **재생바(seek)**: 하단 슬라이더로 임의 위치로 이동. 드래그 중에는 화면(글자·시간)만 미리 갱신하고, 놓는 순간 `requestMediaSeek`로 실제 오디오 위치를 이동한다. 탐색 도중 옛 위치 업데이트로 인한 깜빡임을 막는 가드(`isSeeking` + 자동 해제 타이머)를 둔다.
+- **등장 애니메이션**: 글자는 `startTime - appearAnimMs` 시점부터 크기 0 → 목표 크기로 `Ease.quadOut` 애니메이션되며, 정확히 `startTime`에 목표 크기에 도달한다.
+- **좌표계 일치**: 월드 크기를 고정값이 아니라 **곡 이미지 실제 크기 × dpr**(소스 추출 시의 `canvasWidth/Height`와 동일)로 맞춰, 추출 단계와 글자 위치·크기·종횡비가 정확히 일치한다.
+- **팬 / 줌**: 캔버스 위에서 드래그로 이동, 휠로 (포인터 기준) 확대·축소.
+- **글자 텍스처 재사용**: `textCanvas.ts`의 `createCharCanvasLayout` / `drawCenteredChar`로 글자를 흰색으로 그린 뒤, `placement.color`를 PixiJS `tint`(곱셈 합성)로 입힌다. 같은 글자는 `Map` 캐시로 재사용.
+- **정리**: 곡 선택 화면으로 돌아가면 PixiJS 리소스와 TextAlive Player(`dispose`)를 정리한다.
+
+## 3. 다국어 UI (`src/i18n`)
+
+UI 문자열을 컴포넌트에서 분리해 다국어 확장에 대비한다.
+
+- `messages.ts`: `Locale`/`Messages` 타입과 `ko`/`en` 사전.
+- `locale.svelte.ts`: 반응형 현재 로케일(`$state`)과 `t()` / `getLocale()` / `setLocale()`. `t()`로 읽으므로 로케일 변경 시 자동 갱신.
+- `index.ts`: 한 곳에서 re-export (`import { t, setLocale } from "./i18n"`).
+- 사용 예: `{t().player.play}`, 전환: `setLocale("en")`.
 
 # 디렉터리 구조
 
@@ -54,12 +73,14 @@
 src/
 ├─ main.ts                     # 진입점, 경로별 페이지 분기 (App / PixiPreviewPage)
 ├─ App.svelte                  # WebGPU 글자 추출 도구 페이지
-├─ PixiPreviewPage.svelte      # PixiJS JSONL 미리보기 페이지
+├─ PixiPreviewPage.svelte      # 곡 선택 화면 (JSONL 자동 탐색 + 곡 카드 그리드)
+├─ GlyphPlayer.svelte          # 선택한 곡의 음악 동기화 재생/미리보기 화면
 ├─ manager.ts                  # WebGPU/TypeGPU 리소스·텍스처·설정 관리 (Manager 클래스)
 ├─ type.ts                     # CharPos, Color 등 공용 타입
 ├─ util.ts                     # 후보 생성·variance·평균색 캔버스 등 유틸
 ├─ util/                       # 세분화된 유틸 모음 (charPos, canvas, difference)
 ├─ assets/                     # 곡 이미지(png) 및 추출된 가사 데이터(jsonl)
+├─ i18n/                       # 다국어 UI 문자열 (messages.ts / locale.svelte.ts / index.ts)
 └─ webgpu/
    ├─ computeChar.ts           # 글자를 텍스처에 합성 + 캔버스 렌더 (compute/render 파이프라인)
    ├─ computeColor.ts          # 후보 위치의 평균 색상 계산

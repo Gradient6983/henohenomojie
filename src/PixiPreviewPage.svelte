@@ -1,280 +1,121 @@
 <script lang="ts">
-  import * as PIXI from "pixi.js";
-  import { SvelteMap } from "svelte/reactivity";
-  import jsonlRaw from "./assets/jsonl_こたえて _ imie.jsonl?raw";
-  import {
-    createCharCanvasLayout,
-    drawCenteredChar,
-  } from "./webgpu/glyph/textCanvas";
+  import GlyphPlayer from "./GlyphPlayer.svelte";
+  import { t } from "./i18n";
+  import type { SongCatalogItem } from "./webgpu/glyph/replayIO";
+  import songSource from "./webgpu/glyph/songSource";
 
-  type PlacementRecord = {
-    type: "placement";
-    step: number;
-    char: string;
-    pos: {
-      x: number;
-      y: number;
-      scale: number;
-      opacity: number;
-      rotation: number;
-    };
-    color: [number, number, number];
-  };
+  // assets 폴더의 모든 jsonl을 원본 문자열로 불러온다.
+  const rawModules = import.meta.glob("./assets/*.jsonl", {
+    query: "?raw",
+    import: "default",
+    eager: true,
+  }) as Record<string, string>;
 
-  const baseWidth = 1920;
-  const baseHeight = 1080;
-  const minZoom = 0.1;
-  const maxZoom = 8;
+  // assets 폴더의 edges_*.png(윤곽선 이미지)를 URL로 불러와 곡별로 매핑한다.
+  // 파일명은 `edges_<라벨>.png`이며, 라벨의 " / "가 파일시스템 제약상 " _ "로 치환돼 있다.
+  const edgeModules = import.meta.glob("./assets/edges_*.png", {
+    import: "default",
+    eager: true,
+  }) as Record<string, string>;
 
-  function parsePlacements(raw: string): PlacementRecord[] {
-    const parsed: PlacementRecord[] = [];
-    const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-
-    for (const line of lines) {
-      try {
-        const record = JSON.parse(line) as PlacementRecord;
-        if (record?.type === "placement") parsed.push(record);
-      } catch {
-        // JSONL 한 줄 오류는 무시하고 계속 파싱
-      }
-    }
-
-    return parsed.sort((a, b) => a.step - b.step);
+  const edgeUrlByName = new Map<string, string>();
+  for (const [path, url] of Object.entries(edgeModules)) {
+    const name = path
+      .split("/")
+      .pop()
+      ?.replace(/^edges_/, "")
+      .replace(/\.png$/, "");
+    if (name) edgeUrlByName.set(name, url);
   }
 
-  const placements = parsePlacements(jsonlRaw);
-  // Pixi tint는 원본 텍스처 색과 곱해지므로, 흰색 글자로 만들어야 color 값이 보존된다.
-  const charLayout = createCharCanvasLayout({
-    textColor: "rgb(255, 255, 255)",
-  });
+  function edgeUrlForSong(song: SongCatalogItem): string | undefined {
+    return edgeUrlByName.get(song.id.replaceAll(" / ", " _ "));
+  }
 
-  let shownCount = $state(0);
-  let zoom = $state(1);
+  // 각 jsonl의 첫 song 레코드의 songId를 키로 매핑한다.
+  const jsonlBySongId = new Map<string, string>();
+  for (const raw of Object.values(rawModules)) {
+    const firstLine = raw.split(/\r?\n/).find((line) => line.trim());
+    if (!firstLine) continue;
+    try {
+      const record = JSON.parse(firstLine) as {
+        type?: string;
+        songId?: unknown;
+      };
+      if (record.type === "song" && typeof record.songId === "string") {
+        jsonlBySongId.set(record.songId, raw);
+      }
+    } catch {
+      // 파싱 실패한 파일은 무시
+    }
+  }
 
-  let app: PIXI.Application | null = null;
-  let camera: PIXI.Container | null = null;
-  let glyphLayer: PIXI.Container | null = null;
-  let glyphSprites: PIXI.Sprite[] = [];
-  let textureCache = new SvelteMap<string, PIXI.Texture>();
+  const songs = songSource.map((song) => ({
+    song,
+    available: jsonlBySongId.has(song.id),
+  }));
 
-  let dragActive = false;
-  let lastPointerX = 0;
-  let lastPointerY = 0;
-
-  const currentStepLabel = $derived(
-    shownCount > 0 ? String(placements[shownCount - 1]?.step ?? "-") : "-",
+  let selected = $state<{ song: SongCatalogItem; jsonlRaw: string } | null>(
+    null,
   );
 
-  function makeTint(rgb: [number, number, number]): number {
-    const r = Math.min(255, Math.max(0, Math.round(rgb[0] * 255)));
-    const g = Math.min(255, Math.max(0, Math.round(rgb[1] * 255)));
-    const b = Math.min(255, Math.max(0, Math.round(rgb[2] * 255)));
-    return (r << 16) | (g << 8) | b;
+  function selectSong(song: SongCatalogItem) {
+    const jsonlRaw = jsonlBySongId.get(song.id);
+    if (!jsonlRaw) return;
+    selected = { song, jsonlRaw };
   }
 
-  function getCharTexture(char: string): PIXI.Texture | null {
-    const cached = textureCache.get(char);
-    if (cached) return cached;
-
-    const canvas = document.createElement("canvas");
-    canvas.width = charLayout.canvasPixelSize;
-    canvas.height = charLayout.canvasPixelSize;
-    drawCenteredChar(canvas, char, charLayout);
-
-    const texture = PIXI.Texture.from(canvas);
-    textureCache.set(char, texture);
-    return texture;
-  }
-
-  function addNextPlacement() {
-    if (!glyphLayer || shownCount >= placements.length) return;
-    const placement = placements[shownCount];
-    if (!placement) return;
-
-    const texture = getCharTexture(placement.char);
-    if (!texture) return;
-
-    const sprite = new PIXI.Sprite(texture);
-    sprite.anchor.set(0.5, 0.5);
-    sprite.position.set(placement.pos.x * baseWidth, placement.pos.y * baseHeight);
-    sprite.scale.set(placement.pos.scale, placement.pos.scale);
-    sprite.alpha = placement.pos.opacity;
-    sprite.rotation = (placement.pos.rotation * Math.PI) / 180;
-    sprite.tint = makeTint(placement.color);
-
-    glyphLayer.addChild(sprite);
-    glyphSprites.push(sprite);
-    shownCount += 1;
-  }
-
-  function removeLastPlacement() {
-    if (shownCount <= 0) return;
-    const sprite = glyphSprites.pop();
-    if (sprite) {
-      sprite.destroy();
-    }
-    shownCount -= 1;
-  }
-
-  function clearPlacements() {
-    for (const sprite of glyphSprites) {
-      sprite.destroy();
-    }
-    glyphSprites = [];
-    shownCount = 0;
-  }
-
-  function resetView() {
-    if (!app || !camera) return;
-    const screenW = app.renderer.width;
-    const screenH = app.renderer.height;
-    const fitScale = Math.min(screenW / baseWidth, screenH / baseHeight);
-
-    zoom = fitScale;
-    camera.scale.set(fitScale, fitScale);
-    camera.position.set(
-      (screenW - baseWidth * fitScale) * 0.5,
-      (screenH - baseHeight * fitScale) * 0.5,
-    );
-  }
-
-  function resetAll() {
-    clearPlacements();
-    resetView();
-  }
-
-  function clampZoom(value: number): number {
-    return Math.min(maxZoom, Math.max(minZoom, value));
-  }
-
-  function onPointerDown(event: PointerEvent) {
-    dragActive = true;
-    lastPointerX = event.clientX;
-    lastPointerY = event.clientY;
-  }
-
-  function onPointerMove(event: PointerEvent) {
-    if (!dragActive || !camera) return;
-    const dx = event.clientX - lastPointerX;
-    const dy = event.clientY - lastPointerY;
-    camera.position.x += dx;
-    camera.position.y += dy;
-    lastPointerX = event.clientX;
-    lastPointerY = event.clientY;
-  }
-
-  function onPointerUp() {
-    dragActive = false;
-  }
-
-  function onWheel(event: WheelEvent) {
-    if (!camera || !app) return;
-    event.preventDefault();
-
-    const rect = app.canvas.getBoundingClientRect();
-    const sx = event.clientX - rect.left;
-    const sy = event.clientY - rect.top;
-
-    const oldZoom = zoom;
-    const nextZoom = clampZoom(oldZoom * Math.exp(-event.deltaY * 0.001));
-    if (nextZoom === oldZoom) return;
-
-    const wx = (sx - camera.position.x) / oldZoom;
-    const wy = (sy - camera.position.y) / oldZoom;
-
-    zoom = nextZoom;
-    camera.scale.set(nextZoom, nextZoom);
-    camera.position.x = sx - wx * nextZoom;
-    camera.position.y = sy - wy * nextZoom;
-  }
-
-  function onResize() {
-    if (!app) return;
-    app.renderer.resize(window.innerWidth, window.innerHeight);
-    if (shownCount === 0) {
-      resetView();
-    }
-  }
-
-  async function setupPixi(canvas: HTMLCanvasElement, isActive: () => boolean) {
-    app = new PIXI.Application();
-    camera = new PIXI.Container();
-    glyphLayer = new PIXI.Container();
-    camera.addChild(glyphLayer);
-    app.stage.addChild(camera);
-
-    await app.init({
-      canvas,
-      backgroundAlpha: 1,
-      backgroundColor: 0x000000,
-      antialias: true,
-      width: window.innerWidth,
-      height: window.innerHeight,
-    });
-    if (!isActive()) {
-      app?.destroy(true);
-      app = null;
-      camera = null;
-      glyphLayer = null;
-      return;
-    }
-
-    canvas.style.touchAction = "none";
-    resetView();
-
-    canvas.addEventListener("pointerdown", onPointerDown);
-    canvas.addEventListener("pointermove", onPointerMove);
-    canvas.addEventListener("pointerup", onPointerUp);
-    canvas.addEventListener("pointercancel", onPointerUp);
-    canvas.addEventListener("pointerleave", onPointerUp);
-    canvas.addEventListener("wheel", onWheel, { passive: false });
-    window.addEventListener("resize", onResize);
-  }
-
-  function teardownPixi(canvas: HTMLCanvasElement) {
-    dragActive = false;
-
-    canvas.removeEventListener("pointerdown", onPointerDown);
-    canvas.removeEventListener("pointermove", onPointerMove);
-    canvas.removeEventListener("pointerup", onPointerUp);
-    canvas.removeEventListener("pointercancel", onPointerUp);
-    canvas.removeEventListener("pointerleave", onPointerUp);
-    canvas.removeEventListener("wheel", onWheel);
-    window.removeEventListener("resize", onResize);
-
-    clearPlacements();
-    for (const texture of textureCache.values()) {
-      texture.destroy(true);
-    }
-    textureCache.clear();
-
-    app?.destroy(true);
-    app = null;
-    camera = null;
-    glyphLayer = null;
-  }
-
-  function attachCanvas(node: HTMLCanvasElement) {
-    let active = true;
-    void setupPixi(node, () => active);
-
-    return () => {
-      if (!active) return;
-      active = false;
-      teardownPixi(node);
-    };
+  function back() {
+    selected = null;
   }
 </script>
 
-<div class="page-root">
-  <div class="controls">
-    <button onclick={removeLastPlacement} disabled={shownCount <= 0}>이전</button>
-    <button onclick={addNextPlacement} disabled={shownCount >= placements.length}>다음</button>
-    <button onclick={resetAll}>리셋</button>
-    <span class="status">step: {currentStepLabel} / total: {placements.length}</span>
+{#if selected}
+  <GlyphPlayer
+    song={selected.song}
+    jsonlRaw={selected.jsonlRaw}
+    edgeUrl={edgeUrlForSong(selected.song)}
+    onBack={back}
+  />
+{:else}
+  <div class="select-root">
+    <div class="select-inner">
+      <header class="select-header">
+        <h1>{t().songSelect.title}</h1>
+        <p>{t().songSelect.description}</p>
+      </header>
+
+      <ul class="song-grid">
+        {#each songs as item (item.song.id)}
+          <li>
+            <button
+              type="button"
+              class="song-card"
+              class:unavailable={!item.available}
+              disabled={!item.available}
+              onclick={() => selectSong(item.song)}
+            >
+              <span class="thumb">
+                <img src={item.song.imageUrl} alt={item.song.label} />
+                {#if !item.available}
+                  <span class="badge">{t().songSelect.badgePreparing}</span>
+                {/if}
+              </span>
+              <span class="meta">
+                <span class="title">{item.song.label}</span>
+                <span class="state">
+                  {item.available
+                    ? t().songSelect.available
+                    : t().songSelect.unavailable}
+                </span>
+              </span>
+            </button>
+          </li>
+        {/each}
+      </ul>
+    </div>
   </div>
-  <canvas class="canvas-host" {@attach attachCanvas}></canvas>
-</div>
+{/if}
 
 <style>
   :global(html),
@@ -283,59 +124,122 @@
     padding: 0;
     width: 100%;
     height: 100%;
-    overflow: hidden;
   }
 
   :global(body) {
-    background: #000;
+    background: #0b0b10;
   }
 
-  .page-root {
+  .select-root {
     position: fixed;
     inset: 0;
+    overflow: auto;
+    background: radial-gradient(
+      circle at 50% 0%,
+      #1a1a26 0%,
+      #0b0b10 60%
+    );
+    color: #fff;
+  }
+
+  .select-inner {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 48px 24px 64px;
+  }
+
+  .select-header h1 {
+    margin: 0 0 8px;
+    font-size: 1.8rem;
+  }
+
+  .select-header p {
+    margin: 0 0 28px;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 0.95rem;
+  }
+
+  .song-grid {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 16px;
+  }
+
+  .song-card {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.04);
+    color: inherit;
     overflow: hidden;
+    cursor: pointer;
+    text-align: left;
+    transition:
+      transform 0.12s ease,
+      border-color 0.12s ease,
+      background 0.12s ease;
+  }
+
+  .song-card:hover:not(:disabled) {
+    transform: translateY(-3px);
+    border-color: rgba(120, 170, 255, 0.6);
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .song-card:disabled {
+    cursor: not-allowed;
+  }
+
+  .song-card.unavailable {
+    opacity: 0.55;
+  }
+
+  .thumb {
+    position: relative;
+    display: block;
+    aspect-ratio: 16 / 9;
     background: #000;
   }
 
-  .canvas-host {
+  .thumb img {
     width: 100%;
     height: 100%;
-    overflow: hidden;
+    object-fit: cover;
+    display: block;
   }
 
-  .controls {
-    position: fixed;
-    top: 12px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 10;
+  .badge {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    font-size: 0.75rem;
+  }
+
+  .meta {
     display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 12px;
-    background: rgba(0, 0, 0, 0.6);
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 10px;
-    color: #fff;
-    backdrop-filter: blur(6px);
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 14px 14px;
   }
 
-  button {
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.12);
-    color: #fff;
-    padding: 6px 10px;
-    cursor: pointer;
+  .title {
+    font-size: 0.95rem;
+    font-weight: 600;
+    line-height: 1.3;
   }
 
-  button:disabled {
-    opacity: 0.45;
-    cursor: default;
-  }
-
-  .status {
-    font-size: 0.9rem;
-    white-space: nowrap;
+  .state {
+    font-size: 0.8rem;
+    color: rgba(255, 255, 255, 0.55);
   }
 </style>

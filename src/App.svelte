@@ -20,6 +20,12 @@
     toSongJsonl,
   } from "./webgpu/glyph/replayIO";
   import songSource from "./webgpu/glyph/songSource";
+  import {
+    computeSobelEdges,
+    downloadSobelEdges,
+    sobelResultToCanvas,
+  } from "./webgpu/glyph/sobelFilter";
+  import { setEdgeOverlay } from "./webgpu/glyph/edgeOverlayStore";
   const songCatalog = songSource;
 
   const imageCatalog = songCatalog.map((song) => ({
@@ -106,11 +112,6 @@
     selectedPhraseId = null;
     resetComputeState();
     await loadSelectedImageToCanvas();
-  }
-
-  function handleSelectPhrase(phraseId: string | null) {
-    selectedPhraseId = phraseId;
-    resetComputeState();
   }
 
   async function handleExtractSelectedSongLyrics() {
@@ -204,6 +205,32 @@
     statusMessage = `${selectedBundle.song.songId}.jsonl 내보내기 완료`;
   }
 
+  async function handleSobelEdges() {
+    if (!Manager.imageTexture) {
+      statusMessage = "먼저 이미지를 불러와 주세요.";
+      return;
+    }
+
+    try {
+      isBusy = true;
+      statusMessage = "Sobel 윤곽선 추출 중...";
+      const result = await computeSobelEdges();
+      // Pixi 프리뷰에서 오버레이로 쓸 수 있도록 캔버스 형태로 메모리에 저장한다.
+      setEdgeOverlay({
+        id: selectedSongId,
+        width: result.width,
+        height: result.height,
+        source: sobelResultToCanvas(result),
+      });
+      await downloadSobelEdges(result, `${selectedSongId}-edges.png`);
+      statusMessage = "Sobel 윤곽선 추출 완료 (메모리 저장 + 다운로드)";
+    } catch (error) {
+      statusMessage = `Sobel 추출 실패: ${error instanceof Error ? error.message : "unknown error"}`;
+    } finally {
+      isBusy = false;
+    }
+  }
+
   onMount(async () => {
     finalCanvas = document.getElementById(
       "final-canvas",
@@ -241,27 +268,13 @@
             {/each}
           </select>
         </label>
-      </div>
 
-      <div class="phrase-toolbar">
-        <span>Phrase</span>
-        <button
-          class:active={selectedPhraseId === null}
-          onclick={() => handleSelectPhrase(null)}
-          disabled={!selectedBundle}
-        >
-          all
-        </button>
-        {#if selectedBundle}
-          {#each selectedBundle.phrases as phrase (phrase.phraseId)}
-            <button
-              class:active={selectedPhraseId === phrase.phraseId}
-              onclick={() => handleSelectPhrase(phrase.phraseId)}
-            >
-              {phrase.text || "(blank)"}
-            </button>
-          {/each}
-        {/if}
+        <div class="field">
+          <span>Edge overlay</span>
+          <button onclick={handleSobelEdges} disabled={isBusy}>
+            sobel 윤곽선 추출 & 다운로드
+          </button>
+        </div>
       </div>
 
       <canvas
@@ -392,23 +405,8 @@
     padding: 6px 8px;
   }
 
-  .phrase-toolbar {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-bottom: 8px;
-    max-width: 560px;
-  }
-
-  .phrase-toolbar button,
   .button-row button {
     padding: 4px 8px;
-  }
-
-  .phrase-toolbar button.active {
-    border: 1px solid #111111;
-    background: #e7f1ff;
   }
 
   .button-row {
