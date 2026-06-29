@@ -50,6 +50,8 @@ export interface Messages {
     pickImage: string;
     /** Hint for the sample image gallery */
     sampleHint: string;
+    /** Label prefix shown before each sample image's source attribution */
+    sampleCredit: string;
     songStep: string;
     start: string;
     /** Hint shown in the right panel before training starts */
@@ -128,17 +130,17 @@ export const ja: Messages = {
     siteNameSub: "Heno Heno Moji-e",
     tagline: "歌詞の一文字一文字で描く絵",
     introBody:
-      "歌の歌詞に出てくる文字を一つひとつ重ねて、一枚の絵になるように作りました。WebGPU を使って自分で画像をアップロードし、進化ベースのアルゴリズムで文字の配置を推論することもできます。どうぞ楽しんでください！",
+      "歌詞の文字だけで一枚の絵を作ってみたい、という思いから生まれました。WebGPU ベースの進化アルゴリズムによって、文字が自動的に最適な位置を推論し、絵を完成させます。あらかじめ推論された作品を鑑賞することも、自分で画像をアップロードして推論の過程をリアルタイムで見守ることもできます（PC 限定）。楽しんでいただけたら嬉しいです。",
     scrollHint: "下にスクロールして曲を選んでください",
     howToTitle: "楽しみ方",
     howToSteps: [
-      "下の曲リストからお好きな曲を選ぶと、歌詞の文字が集まって絵が完成する映像を楽しめます。",
-      "再生画面の設定で、音量・輪郭線・星座などの表示効果を自由に変えてみてください。",
-      "自分の写真を使いたいときは「写真をアップロードして学習」を押して、WebGPU が進化ベースのアルゴリズムであなただけの絵を推論する様子をご覧ください。",
+      "下の曲リストからお好きな曲を選ぶと、歌詞の文字が順番に並んでいき、絵が完成していく様子を鑑賞できます。",
+      "歯車アイコンをクリックして再生画面の設定を開くと、音量・輪郭線・星座などの表示効果を自由に変えられます。",
+      "自分の写真を使いたいときは「写真をアップロードして学習」を押すと、WebGPU が進化ベースのアルゴリズムであなただけの絵を推論する過程をリアルタイムで見守れます（PC 限定）。",
     ],
-    noticeTitle: "ご注意ください",
+    noticeTitle: "注意事項",
     noticeBody:
-      "WebGPU に対応していない古いブラウザでは、自分で画像をアップロードして学習する機能は使えません。あらかじめ用意された曲の鑑賞は問題なくできますので、自分での学習は最新版の Chrome や Edge でお楽しみください。",
+      "WebGPU に対応していない古いブラウザでは、自分で画像をアップロードして学習する機能は使えません。あらかじめ用意された曲の鑑賞は問題なくできますので、自分での学習は最新版の PC ブラウザをご利用ください。",
     songSectionTitle: "曲を選ぶ",
     songSectionDesc: "お好きな曲を選んで、歌詞で描いた絵をお楽しみください。",
     webgpuWarningTitle: "WebGPU を利用できません",
@@ -148,7 +150,8 @@ export const ja: Messages = {
   },
   songSelect: {
     title: "曲を選択",
-    description: "再生する曲を選んでください。データが用意された曲のみ再生できます。",
+    description:
+      "再生する曲を選んでください。データが用意された曲のみ再生できます。",
     badgePreparing: "準備中",
     available: "再生可能",
     unavailable: "データなし",
@@ -161,6 +164,7 @@ export const ja: Messages = {
     imageStep: "1. 写真をアップロード",
     pickImage: "画像ファイルを選んでください。",
     sampleHint: "または下のサンプル画像から選んでください。",
+    sampleCredit: "画像出典",
     songStep: "2. 曲を選択",
     start: "学習開始",
     placeholder:
@@ -210,7 +214,7 @@ export const ja: Messages = {
     edgeOpacityDesc: "重ねて表示される輪郭線の濃さを調整します。",
     constellation: "星座",
     constellationDesc:
-      "今歌っている歌詞の文字を線でつないで星座のように強調します。",
+      "今歌っている歌詞の文字を線でつないで強調して表示します。",
   },
 };
 
@@ -220,28 +224,29 @@ export const ko: Messages = {
     siteNameSub: "Heno Heno Moji-e",
     tagline: "가사 한 글자 한 글자로 그리는 그림",
     introBody:
-      "노래의 가사로 나오는 글자를 하나하나 얹어, 한 장의 그림이 되도록 만들었어요. WebGPU를 통해 직접 이미지를 업로드하고, 진화 기반 알고리즘으로 글자 배치를 추론해볼 수도 있답니다. 부디 즐겁게 즐겨 주세요!",
+      "노래 가사만으로 이루어진 그림을 만들어보고 싶었습니다. WebGPU 기반의 진화 알고리즘을 통해서 글자가 자동으로 최적의 위치를 추론해 그림을 완성합니다. 미리 추론된 결과물을 감상하거나, 직접 이미지를 업로드해서 실시간으로 추론과정을 지켜보는 것도 가능합니다(PC 한정). 재미있게 즐겨주시면 감사하겠습니다.",
     scrollHint: "아래로 스크롤해서 곡을 골라보세요",
     howToTitle: "이렇게 즐겨요",
     howToSteps: [
-      "아래 곡 목록에서 마음에 드는 곡을 고르면, 가사 글자들이 모여 그림이 완성되는 영상을 감상할 수 있어요.",
-      "재생 화면의 설정에서 음량, 윤곽선, 별자리 같은 표시 효과를 자유롭게 바꿔보세요.",
-      "직접 사진을 올리고 싶다면 '직접 사진 올리고 훈련하기'를 눌러, WebGPU가 진화 기반 알고리즘으로 나만의 그림을 추론하는 과정을 지켜보세요.",
+      "아래 곡 목록에서 원하는 곡을 선택한 다음, 가사의 글자들이 순서대로 나열되어서 그림이 완성되는 과정을 감상할 수 있습니다.",
+      "톱니바퀴 아이콘을 클릭해 재생 화면의 설정에서 음량, 윤곽선, 별자리 같은 표시 효과를 자유롭게 바꿀 수 있습니다.",
+      "직접 사진을 올리고 싶다면 '직접 사진 올리고 훈련하기'를 눌러, WebGPU가 진화 기반 알고리즘으로 나만의 그림을 추론하는 과정을 실시간으로 지켜볼 수 있습니다(PC 한정).",
     ],
-    noticeTitle: "잠깐, 알아두세요",
+    noticeTitle: "주의사항",
     noticeBody:
-      "WebGPU를 지원하지 않는 이전 버전의 브라우저에서는 직접 이미지를 업로드해 훈련하는 기능을 사용할 수 없어요. 미리 준비된 곡 감상은 문제없이 가능하니, 직접 훈련은 최신 버전의 Chrome이나 Edge에서 즐겨 주세요.",
+      "WebGPU를 지원하지 않는 이전 버전의 브라우저에서는 직접 이미지를 업로드해 훈련하는 기능을 사용할 수 없습니다. 미리 준비된 곡 감상은 문제없이 가능하니, 직접 훈련은 최신 버전의 PC 브라우저를 이용해주세요.",
     songSectionTitle: "곡 고르기",
     songSectionDesc:
       "마음에 드는 곡을 선택해, 가사로 그려낸 그림을 감상해 보세요.",
-    webgpuWarningTitle: "WebGPU를 사용할 수 없어요",
+    webgpuWarningTitle: "WebGPU를 사용할 수 없습니다",
     webgpuWarningBody:
-      "현재 브라우저에서 WebGPU를 사용할 수 없어, 직접 이미지를 올려 훈련하는 기능을 시작할 수 없어요. 최신 버전의 Chrome이나 Edge처럼 WebGPU를 지원하는 브라우저에서 다시 시도해 주세요.",
+      "현재 브라우저에서 WebGPU를 사용할 수 없어, 직접 이미지를 올려 훈련하는 기능을 시작할 수 없습니다. 최신 버전의 Chrome이나 Edge처럼 WebGPU를 지원하는 브라우저에서 다시 시도해 주세요.",
     webgpuWarningClose: "확인",
   },
   songSelect: {
     title: "곡 선택",
-    description: "재생할 곡을 선택하세요. 데이터가 준비된 곡만 재생할 수 있습니다.",
+    description:
+      "재생할 곡을 선택하세요. 데이터가 준비된 곡만 재생할 수 있습니다.",
     badgePreparing: "준비 중",
     available: "재생 가능",
     unavailable: "데이터 없음",
@@ -254,9 +259,11 @@ export const ko: Messages = {
     imageStep: "1. 사진 업로드",
     pickImage: "이미지 파일을 선택하세요.",
     sampleHint: "또는 아래 예시 이미지에서 선택하세요.",
+    sampleCredit: "이미지 출처",
     songStep: "2. 곡 선택",
     start: "훈련 시작",
-    placeholder: "이미지와 곡을 선택하고 '훈련 시작'을 누르면 여기에 작업 화면이 나타납니다.",
+    placeholder:
+      "이미지와 곡을 선택하고 '훈련 시작'을 누르면 여기에 작업 화면이 나타납니다.",
   },
   train: {
     preparingImage: "이미지 준비 중...",
@@ -302,7 +309,7 @@ export const ko: Messages = {
     edgeOpacityDesc: "겹쳐 보이는 윤곽선의 진하기를 조절합니다.",
     constellation: "별자리",
     constellationDesc:
-      "지금 부르는 가사의 글자들을 선으로 이어 별자리처럼 강조합니다.",
+      "지금 부르는 가사의 글자들을 선으로 이어 강조하여 표시합니다.",
   },
 };
 
@@ -312,17 +319,17 @@ export const en: Messages = {
     siteNameSub: "Heno Heno Moji-e",
     tagline: "A picture drawn with every single lyric",
     introBody:
-      "We stack the characters from a song's lyrics, one by one, until they form a single picture. With WebGPU you can even upload your own image and watch an evolution-based algorithm infer where each character belongs. We truly hope you enjoy it!",
+      "This project was born from a wish to create a picture made entirely of song lyrics. Powered by a WebGPU-based evolutionary algorithm, each character automatically infers its optimal position to complete the picture. You can enjoy results that have already been inferred, or upload your own image and watch the inference unfold in real time (PC only). We'd be delighted if you have fun with it.",
     scrollHint: "Scroll down to pick a song",
     howToTitle: "How to enjoy it",
     howToSteps: [
-      "Pick a song you like from the list below and watch a video where the lyric characters gather to complete a picture.",
-      "In the player's settings, freely tweak the volume and display effects such as outlines and constellations.",
-      "Want to use your own photo? Tap 'Upload a photo & train' and watch WebGPU infer your very own picture with an evolution-based algorithm.",
+      "Pick a song you like from the list below, then watch the lyric characters line up one after another to complete the picture.",
+      "Click the gear icon to open the player settings, where you can freely change display effects such as volume, outlines, and constellations.",
+      "Want to use your own photo? Press 'Upload a photo & train' to watch WebGPU infer your very own picture with an evolution-based algorithm in real time (PC only).",
     ],
-    noticeTitle: "Heads up",
+    noticeTitle: "Notice",
     noticeBody:
-      "On older browsers without WebGPU support, you can't upload your own image to train. Watching the prepared songs works just fine, so please enjoy your own training on a recent version of Chrome or Edge.",
+      "On older browsers without WebGPU support, you can't upload your own image to train. Watching the prepared songs works just fine, so please use a recent PC browser for your own training.",
     songSectionTitle: "Pick a song",
     songSectionDesc:
       "Choose a song you like and enjoy the picture drawn from its lyrics.",
@@ -347,6 +354,7 @@ export const en: Messages = {
     imageStep: "1. Upload a photo",
     pickImage: "Pick an image file.",
     sampleHint: "Or pick one of the sample images below.",
+    sampleCredit: "Image credit",
     songStep: "2. Pick a song",
     start: "Start training",
     placeholder:
@@ -396,7 +404,7 @@ export const en: Messages = {
     edgeOpacityDesc: "Control how strong the overlaid outline appears.",
     constellation: "Constellation",
     constellationDesc:
-      "Connect the glyphs of the current lyric line like a constellation.",
+      "Connect the glyphs of the currently sung lyrics with lines to highlight them.",
   },
 };
 
