@@ -71,21 +71,47 @@ One JSON record per line, distinguished by the `type` field. Pre-extracted songs
 
 The playback screen uses `placement` / `char` / `phrase` / `song` from these, rendering characters in `step` order.
 
-## Development
+## How to run
+
+### Prerequisites
+
+- **Node.js 20.19+** (or 22+) and npm — required by Vite 8. Check with `node -v`.
+- A **WebGPU-capable browser** (recent Chrome / Edge, etc.) — required for the training feature.
+- The TextAlive App API token is already bundled in `src/const/textAlive.ts`, so no extra setup is needed.
+
+### Quick start (dev server)
 
 ```bash
-# Install dependencies
+# 1. Get the repository
+git clone <URL of this repository>
+cd typegpu-glyph
+
+# 2. Install dependencies
 npm install
 
-# Dev server (http://localhost:5173/)
+# 3. Start the dev server
 npm run dev
+```
 
+Then open the URL shown in the terminal (default: http://localhost:5173/) in your browser.
+
+### Other commands
+
+```bash
 # Type / Svelte check
 npm run check
 
-# Production build / preview
+# Production build (outputs to dist/)
 npm run build
+
+# Preview the build locally
 npm run preview
 ```
+
+### Usage
+
+1. On the home screen, pick a song to play, or press "Train your own" to go to the training screen.
+2. On the training screen, upload an image (or pick a sample), choose a song, and run the training.
+3. When training finishes, you return to the home screen automatically and the song you just trained starts playing.
 
 > To use the training feature, run it in a browser that supports WebGPU (e.g. a recent version of Chrome or Edge). Even on unsupported environments, the home screen and playback of bundled songs work fine.
