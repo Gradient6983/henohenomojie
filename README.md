@@ -75,7 +75,7 @@ src/
 
 ### 必要なもの
 
-- **Node.js 20.19 以上**（または 22 以上）と npm — Vite 8 の動作要件です。`node -v` で確認できます。
+- **Node.js 20.19 以上**（または 22 以上）と **pnpm** — Vite 8 の動作要件です。`node -v` で確認できます。pnpm が未インストールの場合は `npm install -g pnpm` か `corepack enable pnpm` で導入できます。
 - **WebGPU 対応ブラウザ**（最新版の Chrome / Edge など）— 学習機能に必須です。
 - TextAlive App API トークンは `src/const/textAlive.ts` に同梱済みのため、追加設定は不要です。
 
@@ -87,10 +87,10 @@ git clone <このリポジトリのURL>
 cd typegpu-glyph
 
 # 2. 依存関係をインストール
-npm install
+pnpm install
 
 # 3. 開発サーバーを起動
-npm run dev
+pnpm dev
 ```
 
 起動後、ターミナルに表示される URL（既定は http://localhost:5173/ ）をブラウザで開きます。
@@ -99,13 +99,13 @@ npm run dev
 
 ```bash
 # 型 / Svelte チェック
-npm run check
+pnpm check
 
 # 本番ビルド（dist/ に出力）
-npm run build
+pnpm build
 
 # ビルド結果をローカルでプレビュー
-npm run preview
+pnpm preview
 ```
 
 ### 使い方

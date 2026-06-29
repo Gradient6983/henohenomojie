@@ -75,7 +75,7 @@ The playback screen uses `placement` / `char` / `phrase` / `song` from these, re
 
 ### Prerequisites
 
-- **Node.js 20.19+** (or 22+) and npm — required by Vite 8. Check with `node -v`.
+- **Node.js 20.19+** (or 22+) and **pnpm** — required by Vite 8. Check with `node -v`. If you don't have pnpm yet, install it with `npm install -g pnpm` or `corepack enable pnpm`.
 - A **WebGPU-capable browser** (recent Chrome / Edge, etc.) — required for the training feature.
 - The TextAlive App API token is already bundled in `src/const/textAlive.ts`, so no extra setup is needed.
 
@@ -87,10 +87,10 @@ git clone <URL of this repository>
 cd typegpu-glyph
 
 # 2. Install dependencies
-npm install
+pnpm install
 
 # 3. Start the dev server
-npm run dev
+pnpm dev
 ```
 
 Then open the URL shown in the terminal (default: http://localhost:5173/) in your browser.
@@ -99,13 +99,13 @@ Then open the URL shown in the terminal (default: http://localhost:5173/) in you
 
 ```bash
 # Type / Svelte check
-npm run check
+pnpm check
 
 # Production build (outputs to dist/)
-npm run build
+pnpm build
 
 # Preview the build locally
-npm run preview
+pnpm preview
 ```
 
 ### Usage
