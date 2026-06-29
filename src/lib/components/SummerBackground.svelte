@@ -1,6 +1,6 @@
 <script lang="ts">
-  // 여름 분위기(해바라기/맑은 하늘)를 내는 배경 캔버스.
-  // 천천히 흐르는 구름, 살랑이는 해바라기 꽃잎, 반짝이는 빛 입자를 그린다.
+  // Background canvas that evokes a summer mood (clear sky).
+  // Slowly drifting clouds, along with softly blurred yellowish light orbs (bokeh circles), gently float up.
 
   interface Cloud {
     x: number;
@@ -9,27 +9,21 @@
     speed: number;
     alpha: number;
   }
-  interface Petal {
-    x: number;
-    y: number;
-    size: number;
-    vy: number;
-    sway: number;
-    phase: number;
-    rot: number;
-    vr: number;
-    hue: number;
-  }
-  interface Spark {
+  // A slightly blurred yellowish circle (light orb). Drawn with a radial gradient whose edges fade out softly.
+  interface Orb {
     x: number;
     y: number;
     r: number;
+    vy: number;
+    drift: number;
     phase: number;
-    speed: number;
+    pulse: number;
+    alpha: number;
+    hue: number;
   }
 
-  // 캔버스에 부착되는 attachment: 노드가 마운트되면 애니메이션을 시작하고,
-  // 노드가 제거되면 반환된 정리 함수로 루프와 리스너를 해제한다.
+  // Attachment bound to the canvas: starts the animation when the node is mounted,
+  // and releases the loop and listeners via the returned cleanup function when the node is removed.
   function summerScene(el: HTMLCanvasElement) {
     const ctx = el.getContext("2d");
     if (!ctx) return;
@@ -46,8 +40,7 @@
     let dpr = 1;
 
     let clouds: Cloud[] = [];
-    let petals: Petal[] = [];
-    let sparks: Spark[] = [];
+    let orbs: Orb[] = [];
 
     function resize() {
       dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -67,26 +60,17 @@
         speed: rand(4, 12),
         alpha: rand(0.22, 0.46),
       }));
-      const petalCount = Math.round(
-        Math.min(42, Math.max(14, area / 42000)),
-      );
-      petals = Array.from({ length: petalCount }, () => ({
+      const orbCount = Math.round(Math.min(34, Math.max(12, area / 60000)));
+      orbs = Array.from({ length: orbCount }, () => ({
         x: rand(0, width),
         y: rand(0, height),
-        size: rand(6, 15),
-        vy: rand(12, 32),
-        sway: rand(14, 40),
+        r: rand(12, 52),
+        vy: rand(6, 20),
+        drift: rand(10, 36),
         phase: rand(0, Math.PI * 2),
-        rot: rand(0, Math.PI * 2),
-        vr: rand(-0.7, 0.7),
-        hue: rand(38, 49),
-      }));
-      sparks = Array.from({ length: 46 }, () => ({
-        x: rand(0, width),
-        y: rand(0, height),
-        r: rand(0.6, 2),
-        phase: rand(0, Math.PI * 2),
-        speed: rand(0.6, 1.6),
+        pulse: rand(0.6, 1.4),
+        alpha: rand(0.12, 0.3),
+        hue: rand(40, 50),
       }));
     }
 
@@ -100,29 +84,17 @@
       ctx!.fill();
     }
 
-    function drawPetal(p: Petal, t: number) {
-      const x = p.x + Math.sin(t / 1000 + p.phase) * p.sway;
-      ctx!.save();
-      ctx!.translate(x, p.y);
-      ctx!.rotate(p.rot + Math.sin(t / 1400 + p.phase) * 0.6);
-      ctx!.fillStyle = `hsla(${p.hue}, 88%, 62%, 0.82)`;
+    function drawOrb(o: Orb, t: number) {
+      const x = o.x + Math.sin(t / 1000 + o.phase) * o.drift;
+      // Breathing effect that slowly brightens and dims
+      const a = o.alpha * (0.7 + 0.3 * Math.sin((t / 900) * o.pulse + o.phase));
+      const g = ctx!.createRadialGradient(x, o.y, 0, x, o.y, o.r);
+      g.addColorStop(0, `hsla(${o.hue}, 92%, 72%, ${a})`);
+      g.addColorStop(0.55, `hsla(${o.hue}, 88%, 62%, ${a * 0.45})`);
+      g.addColorStop(1, `hsla(${o.hue}, 85%, 58%, 0)`);
+      ctx!.fillStyle = g;
       ctx!.beginPath();
-      ctx!.ellipse(0, 0, p.size * 0.55, p.size, 0, 0, Math.PI * 2);
-      ctx!.fill();
-      // 꽃잎 중심에 옅은 코어를 더해 입체감을 준다.
-      ctx!.fillStyle = "rgba(255, 244, 200, 0.5)";
-      ctx!.beginPath();
-      ctx!.ellipse(0, p.size * 0.15, p.size * 0.22, p.size * 0.4, 0, 0, Math.PI * 2);
-      ctx!.fill();
-      ctx!.restore();
-    }
-
-    function drawSpark(s: Spark, t: number) {
-      const a = 0.35 + 0.35 * Math.sin((t / 600) * s.speed + s.phase);
-      if (a <= 0) return;
-      ctx!.fillStyle = `rgba(255, 248, 214, ${a})`;
-      ctx!.beginPath();
-      ctx!.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      ctx!.arc(x, o.y, o.r, 0, Math.PI * 2);
       ctx!.fill();
     }
 
@@ -148,15 +120,14 @@
         }
         drawCloud(c);
       }
-      for (const s of sparks) drawSpark(s, t);
-      for (const p of petals) {
-        p.y += p.vy * dt;
-        p.rot += p.vr * dt;
-        if (p.y - p.size > height) {
-          p.y = -p.size;
-          p.x = rand(0, width);
+      // The light orbs gently float up from the bottom, and once they disappear past the top of the screen they reappear from the bottom.
+      for (const o of orbs) {
+        o.y -= o.vy * dt;
+        if (o.y + o.r < 0) {
+          o.y = height + o.r;
+          o.x = rand(0, width);
         }
-        drawPetal(p, t);
+        drawOrb(o, t);
       }
 
       raf = requestAnimationFrame(frame);
@@ -165,8 +136,7 @@
     function drawStaticOnce() {
       ctx!.clearRect(0, 0, width, height);
       for (const c of clouds) drawCloud(c);
-      for (const s of sparks) drawSpark(s, 0);
-      for (const p of petals) drawPetal(p, 0);
+      for (const o of orbs) drawOrb(o, 0);
     }
 
     if (reduceMotion) {

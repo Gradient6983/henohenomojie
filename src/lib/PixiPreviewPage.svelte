@@ -1,22 +1,25 @@
 <script lang="ts">
   import GlyphPlayer from "./GlyphPlayer.svelte";
-  import SettingsMenu from "./SettingsMenu.svelte";
-  import SummerBackground from "./SummerBackground.svelte";
-  import { t } from "./i18n";
-  import type { SongCatalogItem } from "./webgpu/glyph/replayIO";
-  import songSource from "./webgpu/glyph/songSource";
-  import { clearTrainedResult, getTrainedResults } from "./trainedStore.svelte";
+  import SettingsMenu from "./components/SettingsMenu.svelte";
+  import SummerBackground from "./components/SummerBackground.svelte";
+  import SongCard from "./components/SongCard.svelte";
+  import Modal from "./components/Modal.svelte";
+  import AlertTriangleIcon from "./components/AlertTriangleIcon.svelte";
+  import { t } from "../i18n";
+  import songSource from "../const/songCatalog";
+  import type { SongCatalogItem } from "../types/song";
+  import { clearTrainedResult, getTrainedResults } from "../stores/trainedStore.svelte";
 
-  // assets 폴더의 모든 jsonl을 원본 문자열로 불러온다.
-  const rawModules = import.meta.glob("./assets/*.jsonl", {
+  // Load all jsonl files in the assets folder as raw strings.
+  const rawModules = import.meta.glob("../assets/*.jsonl", {
     query: "?raw",
     import: "default",
     eager: true,
   }) as Record<string, string>;
 
-  // assets 폴더의 edges_*.png(윤곽선 이미지)를 URL로 불러와 곡별로 매핑한다.
-  // 파일명은 `edges_<라벨>.png`이며, 라벨의 " / "가 파일시스템 제약상 " _ "로 치환돼 있다.
-  const edgeModules = import.meta.glob("./assets/edges_*.png", {
+  // Load the edges_*.png (edge images) in the assets folder as URLs and map them per song.
+  // The filename is `edges_<label>.png`, and the " / " in the label has been replaced with " _ " due to filesystem constraints.
+  const edgeModules = import.meta.glob("../assets/edges_*.png", {
     import: "default",
     eager: true,
   }) as Record<string, string>;
@@ -35,7 +38,7 @@
     return edgeUrlByName.get(song.id.replaceAll(" / ", " _ "));
   }
 
-  // 각 jsonl의 첫 song 레코드의 songId를 키로 매핑한다.
+  // Map each jsonl by the songId of its first song record as the key.
   const jsonlBySongId = new Map<string, string>();
   for (const raw of Object.values(rawModules)) {
     const firstLine = raw.split(/\r?\n/).find((line) => line.trim());
@@ -49,7 +52,7 @@
         jsonlBySongId.set(record.songId, raw);
       }
     } catch {
-      // 파싱 실패한 파일은 무시
+      // Ignore files that fail to parse
     }
   }
 
@@ -59,18 +62,18 @@
     onAutoPlayConsumed,
   }: {
     onTrain: () => void;
-    /** 훈련 직후 자동으로 재생할 곡 id */
+    /** Song id to auto-play right after training */
     autoPlaySongId?: string | null;
     onAutoPlayConsumed?: () => void;
   } = $props();
 
-  // 메모리에 저장된 훈련 결과(반응형). 새 결과가 생기면 목록이 자동 갱신된다.
+  // Training results stored in memory (reactive). When a new result is created, the list updates automatically.
   const trained = $derived(getTrainedResults());
 
-  // 번들 데이터 또는 메모리 훈련 결과가 있으면 재생 가능으로 표시한다.
+  // Mark as playable if there is either bundled data or an in-memory training result.
   const songs = $derived(
     songSource.map((song) => ({
-      // 훈련 결과가 있으면 업로드 이미지로 덮어쓴 song을 사용한다.
+      // If a training result exists, use the song overwritten with the uploaded image.
       song: trained[song.id]?.song ?? song,
       available: jsonlBySongId.has(song.id) || Boolean(trained[song.id]),
     })),
@@ -83,7 +86,7 @@
   } | null>(null);
 
   function selectSong(song: SongCatalogItem) {
-    // 훈련 결과를 우선하고, 없으면 번들 jsonl을 사용한다.
+    // Prefer the training result; if none, use the bundled jsonl.
     const trainedResult = trained[song.id];
     if (trainedResult) {
       selected = {
@@ -102,16 +105,16 @@
     selected = null;
   }
 
-  // 훈련 결과를 지워 원래 이미지/데이터로 되돌린다.
+  // Clear the training result to revert to the original image/data.
   function revert(id: string) {
     clearTrainedResult(id);
   }
 
-  // WebGPU 미지원 경고 모달 상태와 감지 중 플래그.
+  // State for the WebGPU-unsupported warning modal and the detecting flag.
   let webgpuWarningOpen = $state(false);
   let checkingWebGPU = $state(false);
 
-  // 현재 브라우저에서 WebGPU를 실제로 사용할 수 있는지 확인한다.
+  // Check whether WebGPU is actually usable in the current browser.
   async function detectWebGPU(): Promise<boolean> {
     if (typeof navigator === "undefined" || !("gpu" in navigator)) {
       return false;
@@ -124,7 +127,7 @@
     }
   }
 
-  // 직접 훈련 진입 전에 WebGPU 가능 여부를 확인하고, 불가능하면 경고를 띄운다.
+  // Before entering custom training, check WebGPU availability, and show a warning if it is unavailable.
   async function handleTrainClick() {
     if (checkingWebGPU) return;
     checkingWebGPU = true;
@@ -137,13 +140,13 @@
     }
   }
 
-  // 소개 영역에서 곡 선택 섹션으로 부드럽게 스크롤한다.
+  // Smoothly scroll from the intro area to the song selection section.
   function scrollToSongs() {
     const target = document.getElementById("song-section");
     target?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
-  // 훈련 직후 전달된 autoPlaySongId가 있으면 자동으로 해당 곡을 재생한다.
+  // If an autoPlaySongId was passed right after training, automatically play that song.
   $effect(() => {
     if (!autoPlaySongId) return;
     const target = songSource.find((s) => s.id === autoPlaySongId);
@@ -174,7 +177,7 @@
     </div>
 
     <div class="select-inner">
-      <!-- 1) 소개(히어로) 영역 -->
+      <!-- 1) Intro (hero) area -->
       <section class="hero">
         <p class="hero-sub">{t().home.siteNameSub}</p>
         <h1 class="hero-title">{t().home.siteName}</h1>
@@ -211,23 +214,10 @@
         </button>
       </section>
 
-      <!-- 2) 주의 사항 (WebGPU 미지원 브라우저 안내) -->
+      <!-- 2) Notice (guidance for browsers without WebGPU support) -->
       <section class="notice" aria-label={t().home.noticeTitle}>
         <span class="notice-icon" aria-hidden="true">
-          <svg
-            viewBox="0 0 24 24"
-            width="22"
-            height="22"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path d="M10.3 3.6 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0z" />
-            <line x1="12" y1="9" x2="12" y2="13" />
-            <line x1="12" y1="17" x2="12.01" y2="17" />
-          </svg>
+          <AlertTriangleIcon />
         </span>
         <div class="notice-body">
           <h2>{t().home.noticeTitle}</h2>
@@ -235,7 +225,7 @@
         </div>
       </section>
 
-      <!-- 3) 곡 선택 영역 -->
+      <!-- 3) Song selection area -->
       <section id="song-section" class="song-section">
         <header class="select-header">
           <h2>{t().home.songSectionTitle}</h2>
@@ -255,102 +245,29 @@
             </button>
           </li>
           {#each songs as item (item.song.id)}
-            <li class="card-li">
-              <button
-                type="button"
-                class="song-card"
-                class:unavailable={!item.available}
-                disabled={!item.available}
-                onclick={() => selectSong(item.song)}
-              >
-                <span class="thumb">
-                  <img src={item.song.imageUrl} alt={item.song.label} />
-                  {#if !item.available}
-                    <span class="badge">{t().songSelect.badgePreparing}</span>
-                  {/if}
-                </span>
-                <span class="meta">
-                  <span class="title">{item.song.label}</span>
-                  <span class="state">
-                    {item.available
-                      ? t().songSelect.available
-                      : t().songSelect.unavailable}
-                  </span>
-                </span>
-              </button>
-
-              {#if trained[item.song.id]}
-                <button
-                  type="button"
-                  class="revert-btn"
-                  title={t().songSelect.revert}
-                  aria-label={t().songSelect.revert}
-                  onclick={() => revert(item.song.id)}
-                >
-                  <svg
-                    viewBox="0 0 24 24"
-                    width="16"
-                    height="16"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
-                    <path d="M3 3v5h5" />
-                  </svg>
-                </button>
-              {/if}
-            </li>
+            <SongCard
+              song={item.song}
+              available={item.available}
+              isTrained={Boolean(trained[item.song.id])}
+              onSelect={() => selectSong(item.song)}
+              onRevert={() => revert(item.song.id)}
+            />
           {/each}
         </ul>
       </section>
     </div>
 
     {#if webgpuWarningOpen}
-      <div
-        class="modal-backdrop"
-        role="presentation"
-        onclick={(e) => {
-          if (e.target === e.currentTarget) webgpuWarningOpen = false;
-        }}
+      <Modal
+        title={t().home.webgpuWarningTitle}
+        body={t().home.webgpuWarningBody}
+        closeLabel={t().home.webgpuWarningClose}
+        onClose={() => (webgpuWarningOpen = false)}
       >
-        <div
-          class="modal"
-          role="alertdialog"
-          aria-modal="true"
-          aria-labelledby="webgpu-warning-title"
-          tabindex="-1"
-        >
-          <span class="modal-icon" aria-hidden="true">
-            <svg
-              viewBox="0 0 24 24"
-              width="28"
-              height="28"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            >
-              <path d="M10.3 3.6 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0z" />
-              <line x1="12" y1="9" x2="12" y2="13" />
-              <line x1="12" y1="17" x2="12.01" y2="17" />
-            </svg>
-          </span>
-          <h2 id="webgpu-warning-title">{t().home.webgpuWarningTitle}</h2>
-          <p>{t().home.webgpuWarningBody}</p>
-          <button
-            type="button"
-            class="modal-close"
-            onclick={() => (webgpuWarningOpen = false)}
-          >
-            {t().home.webgpuWarningClose}
-          </button>
-        </div>
-      </div>
+        {#snippet icon()}
+          <AlertTriangleIcon size={28} />
+        {/snippet}
+      </Modal>
     {/if}
   </div>
 {/if}
@@ -368,14 +285,9 @@
     background: #cdeafa;
   }
 
-  /* 여름 · 해바라기 · 흰 원피스 미쿠 무드: 맑은 하늘에서 따뜻한 크림빛으로 */
+  /* Summer · sunflower · white-dress Miku mood: from a clear sky to a warm cream tone
+     (the color palette tokens are shared globally via :root in app.css) */
   .select-root {
-    --teal: #2bb7ac;
-    --teal-deep: #1d8d84;
-    --sun: #f6b73c;
-    --sun-deep: #e89a1c;
-    --ink: #2f4f57;
-    --ink-soft: #5b7a82;
     position: fixed;
     inset: 0;
     overflow: auto;
@@ -399,11 +311,9 @@
     align-items: center;
     gap: 8px;
     padding: 4px;
-    background: rgba(43, 183, 172, 0.9);
-    border: 1px solid rgba(255, 255, 255, 0.6);
-    border-radius: 999px;
-    backdrop-filter: blur(10px);
-    box-shadow: 0 8px 22px rgba(29, 141, 132, 0.28);
+    background: var(--teal);
+    border: 1px solid var(--teal-deep);
+    border-radius: 4px;
   }
 
   .select-inner {
@@ -414,7 +324,7 @@
     padding: 64px 24px 72px;
   }
 
-  /* ── 히어로(소개) ── */
+  /* ── Hero (intro) ── */
   .hero {
     display: flex;
     flex-direction: column;
@@ -462,11 +372,9 @@
     margin: 0 0 28px;
     padding: 24px 26px;
     text-align: left;
-    background: rgba(255, 255, 255, 0.72);
-    border: 1px solid rgba(255, 255, 255, 0.9);
-    border-radius: 22px;
-    box-shadow: 0 16px 40px rgba(91, 122, 130, 0.16);
-    backdrop-filter: blur(6px);
+    background: rgba(255, 255, 255, 0.85);
+    border: 1px solid rgba(91, 122, 130, 0.2);
+    border-radius: 4px;
   }
 
   .howto-title {
@@ -503,7 +411,6 @@
     color: #fff;
     font-size: 0.9rem;
     font-weight: 700;
-    box-shadow: 0 4px 10px rgba(232, 154, 28, 0.35);
   }
 
   .howto-text {
@@ -519,7 +426,7 @@
     gap: 8px;
     padding: 10px 20px;
     border: none;
-    border-radius: 999px;
+    border-radius: 4px;
     background: rgba(43, 183, 172, 0.16);
     color: var(--teal-deep);
     font-size: 0.95rem;
@@ -548,7 +455,7 @@
     }
   }
 
-  /* ── 주의 사항 ── */
+  /* ── Notice ── */
   .notice {
     display: flex;
     align-items: flex-start;
@@ -557,8 +464,7 @@
     padding: 18px 22px;
     background: rgba(255, 246, 224, 0.92);
     border: 1px solid rgba(246, 183, 60, 0.55);
-    border-radius: 18px;
-    box-shadow: 0 10px 26px rgba(232, 154, 28, 0.14);
+    border-radius: 4px;
   }
 
   .notice-icon {
@@ -581,39 +487,9 @@
     color: #8a6a2f;
   }
 
-  /* ── 곡 선택 ── */
+  /* ── Song selection ── */
   .song-section {
     scroll-margin-top: 24px;
-  }
-
-  .card-li {
-    position: relative;
-  }
-
-  .revert-btn {
-    position: absolute;
-    top: 10px;
-    left: 10px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    padding: 0;
-    border-radius: 999px;
-    border: 1px solid rgba(255, 255, 255, 0.8);
-    background: rgba(43, 183, 172, 0.92);
-    color: #fff;
-    cursor: pointer;
-    box-shadow: 0 4px 12px rgba(29, 141, 132, 0.3);
-    transition:
-      background 0.12s ease,
-      transform 0.12s ease;
-  }
-
-  .revert-btn:hover {
-    background: var(--teal-deep);
-    transform: scale(1.08);
   }
 
   .select-header h2 {
@@ -638,86 +514,6 @@
     gap: 22px;
   }
 
-  .song-card {
-    display: flex;
-    flex-direction: column;
-    width: 100%;
-    height: 100%;
-    padding: 0;
-    border: 1px solid rgba(255, 255, 255, 0.9);
-    border-radius: 20px;
-    background: rgba(255, 255, 255, 0.78);
-    color: inherit;
-    overflow: hidden;
-    cursor: pointer;
-    text-align: left;
-    box-shadow: 0 12px 30px rgba(91, 122, 130, 0.14);
-    transition:
-      transform 0.16s ease,
-      border-color 0.16s ease,
-      box-shadow 0.16s ease;
-  }
-
-  .song-card:hover:not(:disabled) {
-    transform: translateY(-5px);
-    border-color: rgba(43, 183, 172, 0.7);
-    box-shadow: 0 20px 44px rgba(43, 183, 172, 0.24);
-  }
-
-  .song-card:disabled {
-    cursor: not-allowed;
-  }
-
-  .song-card.unavailable {
-    opacity: 0.6;
-  }
-
-  .thumb {
-    position: relative;
-    display: block;
-    aspect-ratio: 4 / 3;
-    background: linear-gradient(160deg, #eaf6f4, #fdf3dc);
-  }
-
-  .thumb img {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-    display: block;
-  }
-
-  .badge {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    padding: 4px 10px;
-    border-radius: 999px;
-    background: rgba(47, 79, 87, 0.82);
-    color: #fff;
-    border: 1px solid rgba(255, 255, 255, 0.4);
-    font-size: 0.75rem;
-    font-weight: 600;
-  }
-
-  .meta {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    padding: 14px 16px 16px;
-  }
-
-  .title {
-    font-size: 1rem;
-    font-weight: 700;
-    line-height: 1.3;
-    color: var(--ink);
-  }
-
-  .state {
-    font-size: 0.82rem;
-    color: var(--ink-soft);
-  }
-
   .train-card {
     display: flex;
     flex-direction: column;
@@ -729,7 +525,7 @@
     min-height: 220px;
     padding: 22px;
     border: 2px dashed rgba(43, 183, 172, 0.55);
-    border-radius: 20px;
+    border-radius: 4px;
     background: rgba(43, 183, 172, 0.08);
     color: var(--teal-deep);
     cursor: pointer;
@@ -761,78 +557,12 @@
     color: #fff;
     font-size: 2rem;
     line-height: 1;
-    box-shadow: 0 8px 18px rgba(232, 154, 28, 0.35);
   }
 
   .train-label {
     font-size: 0.98rem;
     font-weight: 700;
     text-align: center;
-  }
-
-  /* ── WebGPU 경고 모달 ── */
-  .modal-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 60;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 24px;
-    background: rgba(47, 79, 87, 0.4);
-    backdrop-filter: blur(4px);
-  }
-
-  .modal {
-    width: min(440px, 100%);
-    padding: 30px 28px 24px;
-    text-align: center;
-    background: #fff;
-    border-radius: 22px;
-    box-shadow: 0 24px 60px rgba(47, 79, 87, 0.3);
-  }
-
-  .modal-icon {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 60px;
-    height: 60px;
-    margin-bottom: 14px;
-    border-radius: 50%;
-    background: rgba(246, 183, 60, 0.16);
-    color: var(--sun-deep);
-  }
-
-  .modal h2 {
-    margin: 0 0 10px;
-    font-size: 1.25rem;
-    font-weight: 800;
-    color: var(--ink);
-  }
-
-  .modal p {
-    margin: 0 0 22px;
-    font-size: 0.96rem;
-    line-height: 1.7;
-    color: var(--ink-soft);
-  }
-
-  .modal-close {
-    padding: 11px 30px;
-    border: none;
-    border-radius: 999px;
-    background: linear-gradient(135deg, var(--teal), var(--teal-deep));
-    color: #fff;
-    font-size: 0.98rem;
-    font-weight: 700;
-    cursor: pointer;
-    box-shadow: 0 8px 20px rgba(29, 141, 132, 0.3);
-    transition: transform 0.12s ease;
-  }
-
-  .modal-close:hover {
-    transform: translateY(-2px);
   }
 
   @media (prefers-reduced-motion: reduce) {

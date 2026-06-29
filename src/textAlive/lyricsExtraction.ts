@@ -1,94 +1,15 @@
+// Loads song lyrics via the TextAlive App API and extracts them into phrase/word/char records.
+// Contains only TextAlive-specific logic, unrelated to WebGPU/rendering.
+
 import type { IChar, IPhrase, IVideo, IWord } from "textalive-app-api";
 import { Player } from "textalive-app-api";
-import type { CharPos, Color } from "../../type";
-import type { GlyphStepResult } from "./glyphComputeWorkflow";
-
-export interface SongCatalogItem {
-  id: string;
-  label: string;
-  songUrl: string;
-  imageId: string;
-  imageUrl: string;
-  video?: Record<string, number>;
-}
-
-export interface SongRecord {
-  type: "song";
-  version: 1;
-  songId: string;
-  label: string;
-  songUrl: string;
-  imageId: string;
-  imageUrl: string;
-  title: string;
-  artist: string;
-  duration: number;
-  fullLyrics: string;
-  createdAt: string;
-}
-
-export interface PhraseRecord {
-  type: "phrase";
-  songId: string;
-  phraseId: string;
-  text: string;
-  startTime: number;
-  endTime: number;
-  charStartIndex: number;
-  charEndIndex: number;
-}
-
-export interface WordRecord {
-  type: "word";
-  songId: string;
-  wordId: string;
-  phraseId: string;
-  text: string;
-  startTime: number;
-  endTime: number;
-  charStartIndex: number;
-  charEndIndex: number;
-}
-
-export interface CharRecord {
-  type: "char";
-  songId: string;
-  charId: string;
-  phraseId: string;
-  wordId: string;
-  charIndex: number;
-  renderIndex: number | null;
-  text: string;
-  startTime: number;
-  endTime: number;
-  duration: number;
-  isRenderable: boolean;
-}
-
-export interface PlacementRecord {
-  type: "placement";
-  songId: string;
-  charId: string;
-  step: number;
-  char: string;
-  pos: CharPos;
-  color: Color;
-  diff: number;
-}
-
-export type SongJsonlRecord =
-  | SongRecord
-  | PhraseRecord
-  | WordRecord
-  | CharRecord
-  | PlacementRecord;
-
-export interface SongLyricsBundle {
-  song: SongRecord;
-  phrases: PhraseRecord[];
-  words: WordRecord[];
-  chars: CharRecord[];
-}
+import type {
+  CharRecord,
+  PhraseRecord,
+  SongCatalogItem,
+  SongLyricsBundle,
+  WordRecord,
+} from "../types/song";
 
 interface LoadedSongContext {
   player: Player;
@@ -161,7 +82,7 @@ export async function extractSongLyrics(
   const { player, video } = await loadSongWithPlayer(token, song);
 
   if (!video.firstChar) {
-    throw new Error(`[TextAlive] 가사 타이밍 데이터가 없습니다: ${song.label}`);
+    throw new Error(`[TextAlive] No lyric timing data: ${song.label}`);
   }
 
   const phraseIdByRef = new WeakMap<object, string>();
@@ -288,7 +209,7 @@ export async function extractSongLyrics(
 
   const phrases: PhraseRecord[] = phraseOrder.map((id) => {
     const p = phraseBuilders.get(id);
-    if (!p) throw new Error(`[TextAlive] phrase builder 누락: ${id}`);
+    if (!p) throw new Error(`[TextAlive] Missing phrase builder: ${id}`);
     return {
       type: "phrase",
       songId: song.id,
@@ -303,7 +224,7 @@ export async function extractSongLyrics(
 
   const words: WordRecord[] = wordOrder.map((id) => {
     const w = wordBuilders.get(id);
-    if (!w) throw new Error(`[TextAlive] word builder 누락: ${id}`);
+    if (!w) throw new Error(`[TextAlive] Missing word builder: ${id}`);
     return {
       type: "word",
       songId: song.id,
@@ -355,58 +276,4 @@ export function getCharsByPhrase(
 ): CharRecord[] {
   if (!phraseId) return bundle.chars;
   return bundle.chars.filter((char) => char.phraseId === phraseId);
-}
-
-export function buildPlacementRecords(
-  songId: string,
-  chars: CharRecord[],
-  results: GlyphStepResult[],
-): PlacementRecord[] {
-  const renderableChars = chars.filter((char) => char.isRenderable);
-  const placements: PlacementRecord[] = [];
-
-  for (let i = 0; i < results.length; i++) {
-    const result = results[i];
-    const mappedChar = renderableChars[i];
-    if (!mappedChar) continue;
-
-    placements.push({
-      type: "placement",
-      songId,
-      charId: mappedChar.charId,
-      step: result.step,
-      char: result.char,
-      pos: result.pos,
-      color: result.color,
-      diff: result.diff,
-    });
-  }
-
-  return placements;
-}
-
-export function toSongJsonl(
-  bundle: SongLyricsBundle,
-  placements: PlacementRecord[] = [],
-): string {
-  const lines: SongJsonlRecord[] = [
-    bundle.song,
-    ...bundle.phrases,
-    ...bundle.words,
-    ...bundle.chars,
-    ...placements,
-  ];
-  return lines.map((line) => JSON.stringify(line)).join("\n");
-}
-
-export function downloadText(content: string, filename: string) {
-  const blob = new Blob([content], {
-    type: "application/x-ndjson;charset=utf-8",
-  });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
 }

@@ -1,30 +1,16 @@
 import { d, std } from "typegpu";
 import Manager from "../../manager";
-
-export interface SobelEdgeResult {
-  width: number;
-  height: number;
-  /**
-   * RGBA8 픽셀 데이터. 검은색(0,0,0) 윤곽선 + 알파(엣지 강도)로 구성된다.
-   * Canvas의 ImageData나 PixiJS 텍스처 소스로 그대로 사용할 수 있다.
-   */
-  rgba: Uint8ClampedArray<ArrayBuffer>;
-}
-
-export interface SobelOptions {
-  /** 0~1 사이. 이 값보다 약한 엣지는 제거하여 노이즈를 줄인다. 기본 0.2 */
-  threshold?: number;
-}
+import type { SobelEdgeResult, SobelOptions } from "../../types/image";
 
 /**
- * 현재 Manager에 로드된 배경 이미지 텍스처에 TypeGPU로 Sobel 필터를 적용하여
- * 윤곽선(엣지) 이미지를 추출한다. WebGPU/TypeGPU 로직만 담당하며 DOM/Svelte와 분리되어 있다.
+ * Applies a Sobel filter via TypeGPU to the background image texture currently loaded in Manager
+ * to extract an outline (edge) image. Handles only the WebGPU/TypeGPU logic and is decoupled from DOM/Svelte.
  */
 export async function computeSobelEdges(
   options: SobelOptions = {},
 ): Promise<SobelEdgeResult> {
   if (!Manager.imageView) {
-    throw new Error("[sobel] 이미지 텍스처가 없습니다. 먼저 이미지를 로드하세요.");
+    throw new Error("[sobel] No image texture. Load an image first.");
   }
 
   const root = Manager.root;
@@ -32,12 +18,12 @@ export async function computeSobelEdges(
   const height = Manager.canvasHeight;
   const view = Manager.imageView;
 
-  // 한 번에 읽어오기 위해 각 픽셀의 결과를 RGBA8로 패킹한 u32 배열에 저장한다.
+  // Store each pixel's result in a u32 array packed as RGBA8 so it can be read back in one pass.
   const dims = root.createUniform(d.vec2u, d.vec2u(width, height));
   const thresholdUniform = root.createUniform(d.f32, options.threshold ?? 0.2);
   const edgeBuffer = root.createMutable(d.arrayOf(d.u32, width * height));
 
-  // 휘도(luminance) 변환 가중치 (Rec. 601)
+  // Luminance conversion weights (Rec. 601)
   const luminanceWeights = d.vec3f(0.299, 0.587, 0.114);
 
   const program = root.createGuardedComputePipeline((xIdx, yIdx) => {
@@ -48,7 +34,7 @@ export async function computeSobelEdges(
     const x = d.i32(xIdx);
     const y = d.i32(yIdx);
 
-    // 가장자리 픽셀이 텍스처 밖을 읽지 않도록 좌표를 clamp 한다.
+    // Clamp the coordinates so edge pixels don't read outside the texture.
     const xm = std.max(x - 1, 0);
     const xp = std.min(x + 1, w - 1);
     const ym = std.max(y - 1, 0);
@@ -87,7 +73,7 @@ export async function computeSobelEdges(
       luminanceWeights,
     );
 
-    // 표준 Sobel 커널
+    // Standard Sobel kernel
     const gx = lTR + d.f32(2.0) * lMR + lBR - (lTL + d.f32(2.0) * lML + lBL);
     const gy = lBL + d.f32(2.0) * lBM + lBR - (lTL + d.f32(2.0) * lTM + lTR);
 
@@ -99,7 +85,7 @@ export async function computeSobelEdges(
     }
 
     const idx = d.u32(yIdx) * dims.$.x + d.u32(xIdx);
-    // 검은색 선 + 엣지 강도를 알파로 → 오버레이 시 배경 위에 윤곽선만 보인다.
+    // Black line + edge intensity as alpha -> when overlaid, only the outline shows over the background.
     edgeBuffer.$[idx] = std.pack4x8unorm(
       d.vec4f(d.f32(0.0), d.f32(0.0), d.f32(0.0), edge),
     );
@@ -108,7 +94,7 @@ export async function computeSobelEdges(
   program.dispatchThreads(width, height);
 
   const packed = (await edgeBuffer.read()) as number[];
-  // pack4x8unorm은 컴포넌트 i를 8*i 비트에 저장하므로 리틀엔디언에서 [r,g,b,a] 순이 된다.
+  // pack4x8unorm stores component i at bit 8*i, so the order is [r,g,b,a] on little-endian.
   const u32 = Uint32Array.from(packed);
   const bytes = new Uint8Array(u32.buffer);
   const rgba = new Uint8ClampedArray(width * height * 4);
@@ -118,7 +104,7 @@ export async function computeSobelEdges(
 }
 
 /**
- * Sobel 결과를 2D 캔버스로 변환한다. 이 캔버스는 PIXI.Texture.from()의 소스로 사용할 수 있다.
+ * Converts the Sobel result into a 2D canvas. This canvas can be used as the source for PIXI.Texture.from().
  */
 export function sobelResultToCanvas(
   result: SobelEdgeResult,
@@ -127,14 +113,14 @@ export function sobelResultToCanvas(
   canvas.width = result.width;
   canvas.height = result.height;
   const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("[sobel] 2D 컨텍스트를 만들 수 없습니다.");
+  if (!ctx) throw new Error("[sobel] Failed to create a 2D context.");
   const imageData = new ImageData(result.rgba, result.width, result.height);
   ctx.putImageData(imageData, 0, 0);
   return canvas;
 }
 
 /**
- * Sobel 결과를 PNG 파일로 다운로드한다.
+ * Downloads the Sobel result as a PNG file.
  */
 export async function downloadSobelEdges(
   result: SobelEdgeResult,
@@ -144,7 +130,7 @@ export async function downloadSobelEdges(
   const blob = await new Promise<Blob | null>((resolve) =>
     canvas.toBlob(resolve, "image/png"),
   );
-  if (!blob) throw new Error("[sobel] PNG 변환에 실패했습니다.");
+  if (!blob) throw new Error("[sobel] Failed to convert to PNG.");
 
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");

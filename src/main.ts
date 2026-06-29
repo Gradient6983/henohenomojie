@@ -1,6 +1,6 @@
 import { mount } from "svelte";
 import "./app.css";
-import Root from "./Root.svelte";
+import Root from "./lib/Root.svelte";
 
 const app = mount(Root, {
   target: document.getElementById("app")!,

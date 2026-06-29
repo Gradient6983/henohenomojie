@@ -1,15 +1,15 @@
-import TAKEOVER from "../../assets/img-TAKEOVER.png";
-import ANSWER from "../../assets/img-こたえて.png";
-import AFTER_THE_CURTAIN from "../../assets/img-アフター・ザ・カーテン.png";
-import SHUTTER_CHANCE from "../../assets/img-シャッターチャンス.png";
-import TRICK_CROON from "../../assets/img-トリツクロジー.png";
-import LAST_MUSIC_TEAM from "../../assets/img-世界最後の音楽隊.png";
-import type { SongCatalogItem } from "./replayIO";
+import TAKEOVER from "../assets/img-TAKEOVER.png";
+import ANSWER from "../assets/img-こたえて.png";
+import AFTER_THE_CURTAIN from "../assets/img-アフター・ザ・カーテン.png";
+import SHUTTER_CHANCE from "../assets/img-シャッターチャンス.png";
+import TRICK_CROON from "../assets/img-トリツクロジー.png";
+import LAST_MUSIC_TEAM from "../assets/img-世界最後の音楽隊.png";
+import type { SongCatalogItem } from "../types/song";
 
 // https://developer.textalive.jp/events/magicalmirai2026/
 
-// 여기에서 찾을 수 있음
-const songSource: SongCatalogItem[] = [
+// Can be found here
+const songCatalog: SongCatalogItem[] = [
   {
     id: "こたえて / imie",
     label: "こたえて / imie",
@@ -108,4 +108,4 @@ const songSource: SongCatalogItem[] = [
   },
 ];
 
-export default songSource;
+export default songCatalog;

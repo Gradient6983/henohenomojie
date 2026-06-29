@@ -1,35 +1,35 @@
-export type Locale = "ko" | "en";
+export type Locale = "ja" | "ko" | "en";
 
 export interface Messages {
-  /** 메인(홈) 페이지 소개 섹션 */
+  /** Main (home) page intro section */
   home: {
-    /** 사이트 이름 (へのへのもへじ의 변형) */
+    /** Site name (a variation of へのへのもへじ) */
     siteName: string;
-    /** 사이트 이름의 로마자 표기 */
+    /** Romanized site name */
     siteNameSub: string;
-    /** 짧은 한 줄 소개(태그라인) */
+    /** Short one-line intro (tagline) */
     tagline: string;
-    /** 사이트 소개 본문 */
+    /** Site intro body text */
     introBody: string;
-    /** 아래로 스크롤 유도 문구 */
+    /** Hint encouraging the user to scroll down */
     scrollHint: string;
-    /** 사용 방법 섹션 제목 */
+    /** "How to use" section title */
     howToTitle: string;
-    /** 사용 방법 단계 목록 */
+    /** List of how-to steps */
     howToSteps: string[];
-    /** 주의 사항 섹션 제목 */
+    /** Notice section title */
     noticeTitle: string;
-    /** 주의 사항 본문 (WebGPU 미지원 브라우저 안내) */
+    /** Notice body (guidance for browsers without WebGPU) */
     noticeBody: string;
-    /** 곡 선택 섹션 제목 */
+    /** Song selection section title */
     songSectionTitle: string;
-    /** 곡 선택 섹션 설명 */
+    /** Song selection section description */
     songSectionDesc: string;
-    /** WebGPU 미지원 경고 모달 제목 */
+    /** Title of the WebGPU-unsupported warning modal */
     webgpuWarningTitle: string;
-    /** WebGPU 미지원 경고 모달 본문 */
+    /** Body of the WebGPU-unsupported warning modal */
     webgpuWarningBody: string;
-    /** WebGPU 미지원 경고 모달 닫기 버튼 */
+    /** Close button of the WebGPU-unsupported warning modal */
     webgpuWarningClose: string;
   };
   songSelect: {
@@ -38,9 +38,9 @@ export interface Messages {
     badgePreparing: string;
     available: string;
     unavailable: string;
-    /** 직접 사진을 올려 훈련하는 페이지로 가는 진입 항목 */
+    /** Entry item that navigates to the upload-and-train page */
     trainEntry: string;
-    /** 훈련 결과를 원래 이미지로 되돌리는 버튼 레이블 */
+    /** Label for the button that reverts the trained result to the original image */
     revert: string;
   };
   upload: {
@@ -48,11 +48,11 @@ export interface Messages {
     description: string;
     imageStep: string;
     pickImage: string;
-    /** 예시 이미지 갤러리 안내 문구 */
+    /** Hint for the sample image gallery */
     sampleHint: string;
     songStep: string;
     start: string;
-    /** 훈련 시작 전 오른쪽 패널 안내 문구 */
+    /** Hint shown in the right panel before training starts */
     placeholder: string;
   };
   train: {
@@ -64,13 +64,13 @@ export interface Messages {
     cancelled: string;
     error: string;
     noText: string;
-    /** "n / m 글자"의 단위 */
+    /** Unit for "n / m chars" */
     charUnit: string;
     computedSteps: string;
     renderableChars: string;
-    /** 현재까지 경과한 훈련 시간 라벨 */
+    /** Label for the elapsed training time so far */
     elapsed: string;
-    /** 예상 총 훈련 시간 라벨 */
+    /** Label for the estimated total training time */
     estimatedTotal: string;
     cancel: string;
     play: string;
@@ -84,43 +84,135 @@ export interface Messages {
     play: string;
     pause: string;
     restart: string;
-    /** 윤곽선(Sobel edge) 오버레이 토글 버튼 */
+    /** Toggle button for the outline (Sobel edge) overlay */
     edges: string;
-    /** 가사 줄별 글자 연결선(별자리) 토글 버튼 */
+    /** Toggle button for the per-line glyph connecting lines (constellation) */
     constellation: string;
-    /** 표시 중인 글자 수 뒤에 붙는 단위 (예: "12자", "12 chars") */
+    /** Unit appended after the displayed character count (e.g. "12자", "12 chars") */
     charCountSuffix: string;
   };
-  /** 앱 전역 설정 패널 */
+  /** App-wide settings panel */
   settings: {
-    /** 설정 패널을 여는 버튼 */
+    /** Button that opens the settings panel */
     open: string;
-    /** "일반" 그룹 제목 */
+    /** "General" group title */
     generalGroup: string;
-    /** 언어 설정 라벨 */
+    /** Language setting label */
     language: string;
-    /** "사운드" 그룹 제목 */
+    /** "Sound" group title */
     soundGroup: string;
-    /** 음량 설정 라벨 */
+    /** Volume setting label */
     volume: string;
-    /** 음량 설정 설명 */
+    /** Volume setting description */
     volumeDesc: string;
-    /** "표시 효과" 그룹 제목 */
+    /** "Display effects" group title */
     displayGroup: string;
-    /** 윤곽선 모드 라벨 */
+    /** Outline mode label */
     edges: string;
-    /** 윤곽선 모드 설명 */
+    /** Outline mode description */
     edgesDesc: string;
-    /** 윤곽선 투명도 라벨 */
+    /** Outline opacity label */
     edgeOpacity: string;
-    /** 윤곽선 투명도 설명 */
+    /** Outline opacity description */
     edgeOpacityDesc: string;
-    /** 별자리 모드 라벨 */
+    /** Constellation mode label */
     constellation: string;
-    /** 별자리 모드 설명 */
+    /** Constellation mode description */
     constellationDesc: string;
   };
 }
+
+export const ja: Messages = {
+  home: {
+    siteName: "へのへのもじ絵",
+    siteNameSub: "Heno Heno Moji-e",
+    tagline: "歌詞の一文字一文字で描く絵",
+    introBody:
+      "歌の歌詞に出てくる文字を一つひとつ重ねて、一枚の絵になるように作りました。WebGPU を使って自分で画像をアップロードし、進化ベースのアルゴリズムで文字の配置を推論することもできます。どうぞ楽しんでください！",
+    scrollHint: "下にスクロールして曲を選んでください",
+    howToTitle: "楽しみ方",
+    howToSteps: [
+      "下の曲リストからお好きな曲を選ぶと、歌詞の文字が集まって絵が完成する映像を楽しめます。",
+      "再生画面の設定で、音量・輪郭線・星座などの表示効果を自由に変えてみてください。",
+      "自分の写真を使いたいときは「写真をアップロードして学習」を押して、WebGPU が進化ベースのアルゴリズムであなただけの絵を推論する様子をご覧ください。",
+    ],
+    noticeTitle: "ご注意ください",
+    noticeBody:
+      "WebGPU に対応していない古いブラウザでは、自分で画像をアップロードして学習する機能は使えません。あらかじめ用意された曲の鑑賞は問題なくできますので、自分での学習は最新版の Chrome や Edge でお楽しみください。",
+    songSectionTitle: "曲を選ぶ",
+    songSectionDesc: "お好きな曲を選んで、歌詞で描いた絵をお楽しみください。",
+    webgpuWarningTitle: "WebGPU を利用できません",
+    webgpuWarningBody:
+      "現在のブラウザでは WebGPU を利用できないため、画像をアップロードして学習する機能を開始できません。最新版の Chrome や Edge など、WebGPU に対応したブラウザで再度お試しください。",
+    webgpuWarningClose: "OK",
+  },
+  songSelect: {
+    title: "曲を選択",
+    description: "再生する曲を選んでください。データが用意された曲のみ再生できます。",
+    badgePreparing: "準備中",
+    available: "再生可能",
+    unavailable: "データなし",
+    trainEntry: "写真をアップロードして学習",
+    revert: "元の画像に戻す",
+  },
+  upload: {
+    title: "自分で学習する",
+    description: "写真をアップロードして曲を選ぶと、学習ページに移動します。",
+    imageStep: "1. 写真をアップロード",
+    pickImage: "画像ファイルを選んでください。",
+    sampleHint: "または下のサンプル画像から選んでください。",
+    songStep: "2. 曲を選択",
+    start: "学習開始",
+    placeholder:
+      "画像と曲を選んで「学習開始」を押すと、ここに作業画面が表示されます。",
+  },
+  train: {
+    preparingImage: "画像を準備中...",
+    extracting: "歌詞を抽出中...",
+    training: "学習中...",
+    finalizing: "結果を保存中...",
+    done: "学習完了！再生できます。",
+    cancelled: "学習がキャンセルされました。",
+    error: "エラー",
+    noText: "レンダリングできる文字がありません。",
+    charUnit: "文字",
+    computedSteps: "処理済み",
+    renderableChars: "全文字",
+    elapsed: "学習時間",
+    estimatedTotal: "予想合計時間",
+    cancel: "学習をキャンセル",
+    play: "再生する",
+    close: "閉じる",
+    showDetails: "文字の配置情報を表示",
+    hideDetails: "文字の配置情報を隠す",
+    detailEmpty: "まだ確定した文字の配置がありません。",
+  },
+  player: {
+    backToSelect: "曲一覧",
+    play: "再生",
+    pause: "停止",
+    restart: "最初から",
+    edges: "輪郭線",
+    constellation: "星座",
+    charCountSuffix: " 文字",
+  },
+  settings: {
+    open: "設定",
+    generalGroup: "一般",
+    language: "言語",
+    soundGroup: "サウンド",
+    volume: "音量",
+    volumeDesc: "曲の再生音量を調整します。",
+    displayGroup: "表示効果",
+    edges: "輪郭線",
+    edgesDesc: "元の写真の輪郭線を文字の上に薄く重ねて表示します。",
+    edgeOpacity: "輪郭線の透明度",
+    edgeOpacityDesc: "重ねて表示される輪郭線の濃さを調整します。",
+    constellation: "星座",
+    constellationDesc:
+      "今歌っている歌詞の文字を線でつないで星座のように強調します。",
+  },
+};
 
 export const ko: Messages = {
   home: {
@@ -308,4 +400,4 @@ export const en: Messages = {
   },
 };
 
-export const dictionaries: Record<Locale, Messages> = { ko, en };
+export const dictionaries: Record<Locale, Messages> = { ja, ko, en };

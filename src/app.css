@@ -1,3 +1,14 @@
+/* Shared design tokens for a summer / sunflower / white-dress Miku mood.
+   The color palette based on PixiPreviewPage is shared globally. */
+:root {
+  --teal: #2bb7ac;
+  --teal-deep: #1d8d84;
+  --sun: #f6b73c;
+  --sun-deep: #e89a1c;
+  --ink: #2f4f57;
+  --ink-soft: #5b7a82;
+}
+
 * {
   margin: 0;
   padding: 0;

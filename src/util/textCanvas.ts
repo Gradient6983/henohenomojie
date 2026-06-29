@@ -1,25 +1,12 @@
-import Manager from "../../manager";
+// Layout calculation and rendering utilities for drawing characters on a (2D) canvas.
+// Shared by both training (WebGPU input canvas) and playback (Pixi texture).
 
-export interface CharCanvasSettings {
-  charSize: number;
-  charPadding: number;
-  fontFamily: string;
-  fontWeight: number;
-  textColor: string;
-  devicePixelRatio: number;
-}
-
-export interface CharCanvasLayout {
-  canvasPixelSize: number;
-  canvasStyleSize: number;
-  font: string;
-  textColor: string;
-  devicePixelRatio: number;
-}
+import { CHAR_CANVAS_SETTINGS } from "../const/glyphConfig";
+import type { CharCanvasLayout, CharCanvasSettings } from "../types/glyph";
 
 const DEFAULT_SETTINGS: CharCanvasSettings = {
-  ...Manager.charCanvasSettings,
-  devicePixelRatio: Manager.dpr,
+  ...CHAR_CANVAS_SETTINGS,
+  devicePixelRatio: window.devicePixelRatio || 1,
 };
 
 export function createCharCanvasLayout(

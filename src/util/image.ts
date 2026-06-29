@@ -1,3 +1,5 @@
+// Image loading/resampling utilities (Canvas 2D based, no WebGPU dependency).
+
 function loadImageElement(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -8,11 +10,11 @@ function loadImageElement(src: string): Promise<HTMLImageElement> {
 }
 
 /**
- * 임의 크기의 이미지를 받아 짧은 변이 정확히 `shortSide`(기본 1080)가 되도록
- * 비율을 유지한 채 리샘플링한 PNG data URL을 반환한다.
+ * Takes an image of arbitrary size and returns a PNG data URL resampled while
+ * keeping the aspect ratio, so that the short side is exactly `shortSide` (default 1080).
  *
- * 기본 학습 데이터(1920x1080 / 1080x1080)와 좌표/스케일 분포를 맞추기 위해
- * 훈련 전에 한 번 적용한다.
+ * Applied once before training to align the coordinate/scale distribution with the
+ * default training data (1920x1080 / 1080x1080).
  */
 export async function normalizeImageShortSide(
   src: string,
@@ -22,7 +24,7 @@ export async function normalizeImageShortSide(
   const width = img.naturalWidth;
   const height = img.naturalHeight;
   if (width <= 0 || height <= 0) {
-    throw new Error("[normalizeImage] 이미지 크기를 읽을 수 없습니다.");
+    throw new Error("[normalizeImage] Failed to read the image size.");
   }
 
   const shorter = Math.min(width, height);
@@ -34,7 +36,7 @@ export async function normalizeImageShortSide(
   canvas.width = targetWidth;
   canvas.height = targetHeight;
   const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("[normalizeImage] 2D 컨텍스트를 만들 수 없습니다.");
+  if (!ctx) throw new Error("[normalizeImage] Failed to create a 2D context.");
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
   ctx.drawImage(img, 0, 0, targetWidth, targetHeight);

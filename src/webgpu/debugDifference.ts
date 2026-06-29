@@ -1,13 +1,13 @@
 import { d, std } from "typegpu";
 import Manager from "../manager";
-import type { CharPos, Color } from "../type";
+import type { CharPos, Color } from "../types/geometry";
 import { createGpuCandidate, gpuCandidateStruct } from "./gpuUtils";
 
 /**
- * 차이를 계산하는 compute shader를 실행하는 함수
- * @param color 색상 배열
- * @param data 데이터 배열
- * @returns 차이 배열
+ * Runs the compute shader that calculates differences.
+ * @param color Array of colors
+ * @param data Array of data
+ * @returns Array of differences
  */
 export async function debugDifference(color: Color[], data: CharPos[]) {
   const root = Manager.root;

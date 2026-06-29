@@ -5,7 +5,7 @@
   type Route = "home" | "workspace";
 
   let route = $state<Route>("home");
-  // 훈련 완료 후 재생 화면에서 자동으로 선택/재생할 곡 id
+  // Id of the song to automatically select/play on the playback screen after training completes
   let autoPlaySongId = $state<string | null>(null);
 </script>
 

@@ -1,14 +1,15 @@
 <script lang="ts">
-  import { getLocale, setLocale, t, type Locale } from "./i18n";
-  import * as settings from "./settingsStore.svelte";
+  import { getLocale, setLocale, t, type Locale } from "../../i18n";
+  import * as settings from "../../stores/settingsStore.svelte";
+  import ToggleSwitch from "./ToggleSwitch.svelte";
 
   let {
     showDisplayEffects = false,
     edgeAvailable = false,
   }: {
-    /** 윤곽선/별자리 등 플레이어 전용 표시 효과 그룹을 보일지 여부 */
+    /** Whether to show the player-only display-effects group (outline/constellation, etc.) */
     showDisplayEffects?: boolean;
-    /** 현재 곡에 윤곽선 오버레이가 있는지 여부 (없으면 관련 설정 비활성화) */
+    /** Whether the current song has an outline overlay (related settings are disabled if not) */
     edgeAvailable?: boolean;
   } = $props();
 
@@ -21,6 +22,7 @@
   const constellation = $derived(settings.getConstellation());
 
   const languages: { id: Locale; label: string }[] = [
+    { id: "ja", label: "日本語" },
     { id: "ko", label: "한국어" },
     { id: "en", label: "English" },
   ];
@@ -29,7 +31,7 @@
     open = !open;
   }
 
-  // 패널 바깥을 누르면 닫는다. (메뉴 래퍼 전체에 부착)
+  // Close the panel when clicking outside it. (Attached to the whole menu wrapper.)
   function dismissOnOutside(node: HTMLElement) {
     const handler = (event: PointerEvent) => {
       if (open && !node.contains(event.target as Node)) open = false;
@@ -111,17 +113,12 @@
               <span class="label">{t().settings.edges}</span>
               <span class="desc">{t().settings.edgesDesc}</span>
             </div>
-            <button
-              class="switch"
-              class:on={showEdges}
+            <ToggleSwitch
+              checked={showEdges}
               disabled={!edgeAvailable}
-              role="switch"
-              aria-checked={showEdges}
-              aria-label={t().settings.edges}
-              onclick={() => settings.setShowEdges(!showEdges)}
-            >
-              <span class="knob"></span>
-            </button>
+              label={t().settings.edges}
+              onToggle={(next) => settings.setShowEdges(next)}
+            />
           </div>
 
           <div class="row col" class:disabled={!edgeAvailable || !showEdges}>
@@ -152,16 +149,11 @@
               <span class="label">{t().settings.constellation}</span>
               <span class="desc">{t().settings.constellationDesc}</span>
             </div>
-            <button
-              class="switch"
-              class:on={constellation}
-              role="switch"
-              aria-checked={constellation}
-              aria-label={t().settings.constellation}
-              onclick={() => settings.setConstellation(!constellation)}
-            >
-              <span class="knob"></span>
-            </button>
+            <ToggleSwitch
+              checked={constellation}
+              label={t().settings.constellation}
+              onToggle={(next) => settings.setConstellation(next)}
+            />
           </div>
         </section>
       {/if}
@@ -213,8 +205,8 @@
   }
 
   .gear.active {
-    color: #9ccaff;
-    background: rgba(120, 180, 255, 0.18);
+    color: #fff;
+    background: rgba(255, 255, 255, 0.22);
   }
 
   .panel {
@@ -226,11 +218,10 @@
     max-height: min(70vh, 560px);
     overflow-y: auto;
     padding: 6px 16px 10px;
-    background: rgba(20, 20, 28, 0.97);
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    border-radius: 14px;
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
-    color: #fff;
+    background: #fff;
+    border: 1px solid rgba(47, 79, 87, 0.25);
+    border-radius: 4px;
+    color: var(--ink);
     text-align: left;
   }
 
@@ -239,7 +230,7 @@
   }
 
   .group + .group {
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    border-top: 1px solid rgba(47, 79, 87, 0.1);
   }
 
   .group-title {
@@ -248,7 +239,7 @@
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.5);
+    color: rgba(91, 122, 130, 0.75);
   }
 
   .row {
@@ -284,23 +275,23 @@
   .desc {
     font-size: 0.78rem;
     line-height: 1.4;
-    color: rgba(255, 255, 255, 0.55);
+    color: var(--ink-soft);
   }
 
   .segmented {
     flex: none;
     display: inline-flex;
     padding: 2px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
+    background: rgba(43, 183, 172, 0.12);
   }
 
   .seg {
     padding: 5px 12px;
     border: none;
-    border-radius: 999px;
+    border-radius: 3px;
     background: transparent;
-    color: rgba(255, 255, 255, 0.7);
+    color: var(--ink-soft);
     font-size: 0.82rem;
     cursor: pointer;
     transition:
@@ -309,8 +300,8 @@
   }
 
   .seg.on {
-    background: #fff;
-    color: #111;
+    background: var(--teal);
+    color: #fff;
     font-weight: 600;
   }
 
@@ -325,7 +316,7 @@
     min-width: 0;
     height: 4px;
     cursor: pointer;
-    accent-color: #5b9cff;
+    accent-color: var(--teal);
   }
 
   .slider-row input[type="range"]:disabled {
@@ -338,42 +329,6 @@
     text-align: right;
     font-size: 0.8rem;
     font-variant-numeric: tabular-nums;
-    color: rgba(255, 255, 255, 0.75);
-  }
-
-  .switch {
-    flex: none;
-    position: relative;
-    width: 42px;
-    height: 24px;
-    padding: 0;
-    border: none;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.2);
-    cursor: pointer;
-    transition: background 0.18s ease;
-  }
-
-  .switch.on {
-    background: #5b9cff;
-  }
-
-  .switch:disabled {
-    cursor: default;
-  }
-
-  .knob {
-    position: absolute;
-    top: 3px;
-    left: 3px;
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    background: #fff;
-    transition: transform 0.18s ease;
-  }
-
-  .switch.on .knob {
-    transform: translateX(18px);
+    color: var(--ink-soft);
   }
 </style>

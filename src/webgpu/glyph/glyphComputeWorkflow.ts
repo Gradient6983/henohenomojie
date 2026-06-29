@@ -1,54 +1,13 @@
 import Manager from "../../manager";
-import type { CharPos, CharPosRange, Color } from "../../type";
-import { addRandomVariance, createRandomDataList } from "../../util";
+import type { CharPos, CharPosRange, Color } from "../../types/geometry";
+import type {
+  GlyphComputeOptions,
+  GlyphComputeSnapshot,
+} from "../../types/glyph";
+import { addRandomVariance, createRandomDataList } from "./sampling";
 import computeChar from "../computeChar";
 import { computeColor } from "../computeColor";
 import { debugDifference } from "../debugDifference";
-
-export interface GlyphComputeSnapshot {
-  currentChar: string;
-  currentIndex: number;
-  currentDisplayCharIndex: number;
-  dataList: CharPos[];
-  colors: Color[];
-  diffs: number[];
-  diffRanks: number[];
-}
-
-export interface GlyphStepResult {
-  step: number;
-  char: string;
-  pos: CharPos;
-  color: Color;
-  diff: number;
-}
-
-export interface GlyphProgress {
-  /** 현재 훈련 중인 글자 인덱스 (0-base) */
-  charIndex: number;
-  /** 전체 렌더 대상 글자 수 */
-  totalChars: number;
-  /** 현재 글자에서 진행한 epoch 수 (1-base) */
-  epoch: number;
-  /** 한 글자당 총 epoch 수 */
-  epochNum: number;
-  /** 0~1 사이의 전체 진행률 (글자 + epoch 단위로 세분화) */
-  fraction: number;
-}
-
-export interface GlyphComputeOptions {
-  processedText: string[];
-  startIndex: number;
-  charCanvas: HTMLCanvasElement;
-  textOnlyImage: HTMLCanvasElement;
-  renderChar: (char: string) => void;
-  onUpdate?: (snapshot: GlyphComputeSnapshot) => void;
-  onStepResult?: (result: GlyphStepResult) => void;
-  /** epoch 단위로 호출되는 진행률 콜백 */
-  onProgress?: (progress: GlyphProgress) => void;
-  /** 훈련 도중 취소를 위한 신호. aborted 되면 가능한 빨리 루프를 종료한다. */
-  signal?: AbortSignal;
-}
 
 function rankByDifference(diffArray: number[]): number[] {
   const diffWithIdx = diffArray.map((value, index) => ({ value, index }));
@@ -198,7 +157,7 @@ export async function runGlyphComputeWorkflow(options: GlyphComputeOptions) {
         );
       }
     } catch (error) {
-      console.error("[compute] 실행 실패:", error);
+      console.error("[compute] Execution failed:", error);
     }
 
     currentIndex =

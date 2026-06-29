@@ -1,39 +1,27 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
-  import Manager from "./manager";
-  import { t } from "./i18n";
+  import Manager from "../manager";
+  import { t } from "../i18n";
+  import { runGlyphComputeWorkflow } from "../webgpu/glyph/glyphComputeWorkflow";
+  import {
+    computeSobelEdges,
+    sobelResultToCanvas,
+  } from "../webgpu/glyph/sobelFilter";
+  import { extractSongLyrics, getCharsByPhrase } from "../textAlive/lyricsExtraction";
+  import { buildPlacementRecords, toSongJsonl } from "../textAlive/songJsonl";
+  import { setEdgeOverlay } from "../stores/edgeOverlayStore";
+  import { setTrainedResult } from "../stores/trainedStore.svelte";
   import {
     createCharCanvasLayout,
     drawCenteredChar,
     getRenderableChars,
-  } from "./webgpu/glyph/textCanvas";
-  import {
-    runGlyphComputeWorkflow,
-    type GlyphStepResult,
-  } from "./webgpu/glyph/glyphComputeWorkflow";
-  import {
-    type SongCatalogItem,
-    buildPlacementRecords,
-    extractSongLyrics,
-    getCharsByPhrase,
-    toSongJsonl,
-  } from "./webgpu/glyph/replayIO";
-  import {
-    computeSobelEdges,
-    sobelResultToCanvas,
-  } from "./webgpu/glyph/sobelFilter";
-  import { setEdgeOverlay } from "./webgpu/glyph/edgeOverlayStore";
-  import { normalizeImageShortSide } from "./webgpu/glyph/normalizeImage";
-  import { setTrainedResult } from "./trainedStore.svelte";
-
-  type TrainPhase =
-    | "preparing"
-    | "extracting"
-    | "training"
-    | "finalizing"
-    | "done"
-    | "cancelled"
-    | "error";
+  } from "../util/textCanvas";
+  import { normalizeImageShortSide } from "../util/image";
+  import { formatTime } from "../util/time";
+  import { TEXT_ALIVE_TOKEN } from "../const/textAlive";
+  import type { GlyphStepResult } from "../types/glyph";
+  import type { SongCatalogItem } from "../types/song";
+  import type { TrainPhase } from "../types/train";
 
   let {
     imageUrl,
@@ -41,17 +29,16 @@
     signal,
     onPhaseChange,
   }: {
-    /** 업로드/예시 이미지 URL (정규화 전 원본) */
+    /** Uploaded/sample image URL (original, before normalization) */
     imageUrl: string;
-    /** 선택한 곡 */
+    /** Selected song */
     song: SongCatalogItem;
-    /** 부모가 소유한 취소 신호 */
+    /** Cancellation signal owned by the parent */
     signal?: AbortSignal;
-    /** 진행 단계 변화를 부모에 알린다 */
+    /** Notify the parent of progress phase changes */
     onPhaseChange: (phase: TrainPhase) => void;
   } = $props();
 
-  const textAliveToken = "EP1gDDyqnNEHrnOD";
   const charCanvasLayout = createCharCanvasLayout();
   const charCanvasSize = charCanvasLayout.canvasPixelSize;
 
@@ -68,10 +55,10 @@
   let lastPlacement = $state<GlyphStepResult | null>(null);
   let showDetails = $state(false);
 
-  // 훈련 시간 측정용
+  // For measuring training time
   let trainStartMs = 0;
   let elapsedMs = $state(0);
-  // 예상 총 시간은 EMA로 천천히 수렴시켜 값이 출렁이지 않게 한다.
+  // Converge the estimated total time slowly with an EMA so the value doesn't fluctuate.
   let smoothedTotalMs = $state(0);
   let timer: ReturnType<typeof setInterval> | null = null;
 
@@ -84,17 +71,10 @@
         : Math.min(currentCharIndex + 1, totalChars),
   );
 
-  // 단계 변경 시 내부 상태와 부모 알림을 한 번에 처리한다.
+  // On a phase change, handle the internal state and parent notification together.
   function setPhase(next: TrainPhase) {
     phase = next;
     onPhaseChange(next);
-  }
-
-  function formatTime(ms: number): string {
-    const totalSec = Math.max(0, Math.floor(ms / 1000));
-    const m = Math.floor(totalSec / 60);
-    const s = totalSec % 60;
-    return `${m}:${s.toString().padStart(2, "0")}`;
   }
 
   function drawText() {
@@ -114,7 +94,7 @@
     try {
       setPhase("preparing");
       statusMessage = t().train.preparingImage;
-      // 짧은 변을 1080으로 맞춰 학습 데이터와 좌표 분포를 통일한다.
+      // Fit the short side to 1080 to unify the training data and coordinate distribution.
       const normalizedUrl = await normalizeImageShortSide(imageUrl, 1080);
       if (signal?.aborted) return;
       await Manager.initWithImageAndCanvas(normalizedUrl, finalEl);
@@ -122,7 +102,7 @@
 
       setPhase("extracting");
       statusMessage = `${song.label} · ${t().train.extracting}`;
-      const bundle = await extractSongLyrics(textAliveToken, song);
+      const bundle = await extractSongLyrics(TEXT_ALIVE_TOKEN, song);
       if (signal?.aborted) return;
 
       const processedText = getRenderableChars(
@@ -158,7 +138,7 @@
         },
         onStepResult: (result) => {
           results.push(result);
-          // 한 글자의 최종 위치가 확정된 시점에만 상세 정보를 갱신한다.
+          // Update the detail info only when a glyph's final position is confirmed.
           lastPlacement = result;
         },
         signal,
@@ -173,7 +153,7 @@
 
       setPhase("finalizing");
       statusMessage = t().train.finalizing;
-      // 1) 배치 결과 + 가사를 jsonl 문자열로 만든다.
+      // 1) Build the placement results + lyrics into a jsonl string.
       const chars = getCharsByPhrase(bundle, null);
       const placements = buildPlacementRecords(
         bundle.song.songId,
@@ -182,7 +162,7 @@
       );
       const jsonlRaw = toSongJsonl(bundle, placements);
 
-      // 2) Sobel 윤곽선을 추출해 오버레이용 캔버스/데이터 URL로 변환한다.
+      // 2) Extract the Sobel edges and convert them into an overlay canvas / data URL.
       const sobel = await computeSobelEdges();
       const edgeCanvas = sobelResultToCanvas(sobel);
       const edgeUrl = edgeCanvas.toDataURL("image/png");
@@ -193,8 +173,8 @@
         source: edgeCanvas,
       });
 
-      // 3) 메모리에 저장해 PixiPreviewPage에서 다른 곡처럼 재생할 수 있게 한다.
-      //    재생 시 좌표/비율이 맞도록 이미지는 정규화본으로 덮어쓴다.
+      // 3) Store in memory so it can be played in PixiPreviewPage like any other song.
+      //    Overwrite the image with the normalized version so the coordinates/ratio match during playback.
       setTrainedResult({
         song: { ...song, imageUrl: normalizedUrl },
         jsonlRaw,
@@ -224,7 +204,7 @@
         (phase === "training" || phase === "finalizing")
       ) {
         elapsedMs = performance.now() - trainStartMs;
-        // 진행률이 어느 정도 쌓인 뒤부터 예상치를 천천히 갱신한다.
+        // Start updating the estimate slowly once enough progress has accumulated.
         if (progressFraction > 0.01) {
           const raw = elapsedMs / progressFraction;
           smoothedTotalMs =
@@ -321,7 +301,7 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
-    color: #fff;
+    color: var(--ink);
   }
 
   .result-wrap {
@@ -332,8 +312,8 @@
     width: 100%;
     display: block;
     background-color: #ffffff;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 12px;
+    border: 1px solid rgba(47, 79, 87, 0.12);
+    border-radius: 4px;
   }
 
   .progress-row {
@@ -347,8 +327,8 @@
     width: 120px;
     height: 120px;
     background-color: #ffffff;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 10px;
+    border: 1px solid rgba(47, 79, 87, 0.12);
+    border-radius: 4px;
     flex: 0 0 auto;
   }
 
@@ -358,9 +338,9 @@
     flex-direction: column;
     gap: 8px;
     padding: 16px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 14px;
-    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(91, 122, 130, 0.2);
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.85);
   }
 
   .progress-head {
@@ -371,28 +351,28 @@
 
   .count {
     font-size: 0.95rem;
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--ink);
   }
 
   .pct {
     font-size: 1.4rem;
     font-weight: 700;
-    color: #8fbcff;
+    color: var(--teal-deep);
     font-variant-numeric: tabular-nums;
   }
 
   .bar {
     width: 100%;
     height: 10px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+    background: rgba(47, 79, 87, 0.12);
     overflow: hidden;
   }
 
   .bar-fill {
     height: 100%;
-    border-radius: 999px;
-    background: linear-gradient(90deg, #6aa0ff, #8fbcff);
+    border-radius: 2px;
+    background: linear-gradient(90deg, var(--teal), var(--teal-deep));
     transition: width 0.2s ease;
   }
 
@@ -401,28 +381,28 @@
     justify-content: space-between;
     gap: 12px;
     font-size: 0.8rem;
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--ink-soft);
     font-variant-numeric: tabular-nums;
   }
 
   .status {
     margin: 0;
     font-size: 0.85rem;
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--ink-soft);
   }
 
   .detail-toggle {
     padding: 6px 12px;
-    border-radius: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 4px;
+    border: 1px solid rgba(43, 183, 172, 0.5);
     background: transparent;
-    color: rgba(255, 255, 255, 0.8);
+    color: var(--teal-deep);
     cursor: pointer;
     font-size: 0.82rem;
   }
 
   .detail-toggle:hover {
-    background: rgba(255, 255, 255, 0.06);
+    background: rgba(43, 183, 172, 0.1);
   }
 
   .detail table {
@@ -435,17 +415,17 @@
   .detail td {
     padding: 4px 12px;
     text-align: left;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid rgba(47, 79, 87, 0.1);
   }
 
   .detail th {
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--ink-soft);
     font-weight: 500;
   }
 
   .muted {
     margin: 12px 0 0;
     font-size: 0.85rem;
-    color: rgba(255, 255, 255, 0.45);
+    color: var(--ink-soft);
   }
 </style>

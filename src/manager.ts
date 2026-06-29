@@ -5,80 +5,51 @@ import {
   type TgpuTexture,
   type TgpuTextureView,
 } from "typegpu";
-import type { CharPosRange } from "./type";
-import { getFilledCanvas } from "./util";
+import {
+  CHAR_CANVAS_SETTINGS,
+  GLYPH_SEARCH_CONFIG,
+  NEAREST_SAMPLER_DESCRIPTOR,
+  SCORING_CONFIG,
+  TEXTURE_FORMAT,
+} from "./const/glyphConfig";
+import { getFilledCanvas } from "./webgpu/imageCanvas";
 
 export default class Manager {
-  static readonly textureFormat = "rgba16float" as const;
-  static readonly nearestSamplerDescriptor = {
-    magFilter: "nearest" as const,
-    minFilter: "nearest" as const,
-  };
+  static readonly textureFormat = TEXTURE_FORMAT;
+  static readonly nearestSamplerDescriptor = NEAREST_SAMPLER_DESCRIPTOR;
+  static readonly charCanvasSettings = CHAR_CANVAS_SETTINGS;
+  static readonly glyphSearchConfig = GLYPH_SEARCH_CONFIG;
+  static readonly scoringConfig = SCORING_CONFIG;
 
-  static readonly charCanvasSettings = {
-    charSize: 960,
-    charPadding: 10,
-    fontFamily: "Pretendard JP Variable",
-    fontWeight: 700,
-    textColor: "rgb(0, 0, 0)",
-  } as const;
-
-  static readonly glyphSearchConfig = {
-    candidateNum: 2000,
-    epochNum: 10,
-    topCandidateNum: 50,
-    charPosClip: {
-      x: { min: 0, max: 1 },
-      y: { min: 0, max: 1 },
-      scale: { min: 0.01, max: 1.5 },
-      opacity: { min: 0.2, max: 1 },
-      rotation: { min: 0, max: 360 },
-    } as CharPosRange,
-    charScaleVariance: 0.01,
-    otherVariance: 0.01,
-    scaleStepFactor: 0.02,
-    scaleDecayFactor: 1.5,
-  } as const;
-
-  static readonly scoringConfig = {
-    alphaThreshold: 0.01,
-    stampOccK: 0.2,
-    stampGain: 0.02,
-    scoreFactor: 4096,
-    colorNormDenominator: 1.732,
-    colorNormMax: 255,
-    invalidPenalty: 1e9,
-  } as const;
-
-  // WebGPU 루트. 모듈 로드 시점이 아니라 실제로 훈련을 시작할 때 초기화한다.
-  // (이렇게 해야 WebGPU 미지원 브라우저에서도 홈 화면 자체는 정상적으로 뜬다.)
+  // WebGPU root. Initialized when training actually starts, not at module load time.
+  // (This ensures the home screen still renders correctly even on browsers without WebGPU support.)
   static root: TgpuRoot;
-  /** 원본 이미지 배경 */
+  /** Original image background */
   static imageTexture: TgpuTexture;
   static imageView: TgpuTextureView<d.WgslTexture2d<d.F32>>;
-  /** 글자 이미지 */
+  /** Character image */
   static charTexture: TgpuTexture;
   static charView: TgpuTextureView<d.WgslTexture2d<d.F32>>;
-  /** 차이 이미지 */
+  /** Difference image */
   static differenceTexture: TgpuTexture;
   static differenceView: TgpuTextureView<d.WgslTexture2d<d.F32>>;
-  /** 히트맵 이미지 */
+  /** Heatmap image */
   static stampTexture: TgpuTexture;
   static stampView: TgpuTextureView<d.WgslTexture2d<d.F32>>;
-  /** 원본 이미지 */
+  /** Original image */
   static image: HTMLImageElement;
-  /** 디바이스 픽셀 비율 */
+  /** Device pixel ratio */
   static dpr: number = window.devicePixelRatio || 1;
-  /** 캔버스 너비 */
+  /** Canvas width */
   static canvasWidth: number;
-  /** 캔버스 높이 */
+  /** Canvas height */
   static canvasHeight: number;
-  /** 글자 크기 */
+  /** Character size */
   static charSize: number;
 
   /**
-   * WebGPU 루트를 보장한다. 최초 호출 시에만 tgpu.init()을 수행하고 이후엔 캐시한다.
-   * WebGPU를 사용할 수 없는 환경이면 tgpu.init()이 throw 하므로 호출 측에서 처리해야 한다.
+   * Ensures the WebGPU root exists. Runs tgpu.init() only on the first call and caches it afterward.
+   * In environments where WebGPU is unavailable, tgpu.init() throws, so the caller must handle it.
    */
   static async ensureRoot(): Promise<TgpuRoot> {
     if (!Manager.root) {
@@ -87,9 +58,9 @@ export default class Manager {
     return Manager.root;
   }
 
-  /** 이미지 로드 */
+  /** Load image */
   static async loadImage(imageLink: string) {
-    // 다른 함수에서 이 함수를 await와 쓰기 위해 Promise를 사용함
+    // Uses a Promise so that other functions can await this function
     Manager.image = await new Promise((resolve, reject) => {
       const image = new Image();
       image.onload = () => {
@@ -97,7 +68,7 @@ export default class Manager {
       };
       image.onerror = (e) => {
         console.error(
-          `[Manager] ${imageLink}의 이미지를 로드하는데 실패했습니다.`,
+          `[Manager] Failed to load the image at ${imageLink}.`,
           e,
         );
         reject(e);
@@ -106,13 +77,13 @@ export default class Manager {
     });
   }
 
-  /** 이미지 텍스처 초기화 */
+  /** Initialize the image texture */
   static initTexture() {
     const image = Manager.image;
     const canvasWidth = Manager.canvasWidth;
     const canvasHeight = Manager.canvasHeight;
 
-    if (!image) throw new Error("[Manager] 이미지가 존재하지 않습니다.");
+    if (!image) throw new Error("[Manager] The image does not exist.");
 
     const texture = Manager.root
       .createTexture({
@@ -124,7 +95,7 @@ export default class Manager {
     Manager.imageTexture = texture;
     Manager.imageView = texture.createView(d.texture2d(d.f32));
 
-    // difference texture 초기화
+    // Initialize the difference texture
     const initDiffTexture = getFilledCanvas();
 
     const differenceTexture = Manager.createStorageTexture(
@@ -146,7 +117,7 @@ export default class Manager {
 
   static initSizes() {
     if (!Manager.image)
-      throw new Error("[Manager] 이미지가 존재하지 않습니다.");
+      throw new Error("[Manager] The image does not exist.");
 
     const dpr = Manager.dpr;
     const image = Manager.image;
@@ -159,7 +130,7 @@ export default class Manager {
 
   static initCanvas(canvas: HTMLCanvasElement) {
     if (!Manager.canvasWidth || !Manager.canvasHeight)
-      throw new Error("[Manager] 캔버스 크기가 초기화되지 않았습니다.");
+      throw new Error("[Manager] The canvas size has not been initialized.");
     canvas.width = Manager.canvasWidth;
     canvas.height = Manager.canvasHeight;
   }

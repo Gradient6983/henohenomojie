@@ -1,6 +1,6 @@
 <script lang="ts">
   import * as PIXI from "pixi.js";
-  // 'exclusion' 등 고급 블렌드 모드를 쓰려면 이 확장 모듈을 명시적으로 import해야 한다.
+  // To use advanced blend modes such as 'exclusion', this extension module must be imported explicitly.
   import "pixi.js/advanced-blend-modes";
   import { onDestroy, onMount } from "svelte";
   import { SvelteMap } from "svelte/reactivity";
@@ -10,14 +10,24 @@
     type IPlayerApp,
     type IVideo,
   } from "textalive-app-api";
-  import { t } from "./i18n";
-  import SettingsMenu from "./SettingsMenu.svelte";
-  import * as settings from "./settingsStore.svelte";
-  import type { SongCatalogItem } from "./webgpu/glyph/replayIO";
-  import {
-    createCharCanvasLayout,
-    drawCenteredChar,
-  } from "./webgpu/glyph/textCanvas";
+  import { t } from "../i18n";
+  import * as settings from "../stores/settingsStore.svelte";
+  import { TEXT_ALIVE_TOKEN } from "../const/textAlive";
+  import type {
+    ParsedJsonlData,
+    PhraseLine,
+    PlayerCharRecord,
+    PlayerPlacementRecord,
+    PlayerSongRecord,
+    SongCatalogItem,
+    TimedPlacementRecord,
+  } from "../types/song";
+  import { createCharCanvasLayout } from "../util/textCanvas";
+  import { formatTime } from "../util/time";
+  import { FireworkSystem } from "../pixijs/fireworks";
+  import { makeTint } from "../pixijs/tint";
+  import { createCharTexture } from "../pixijs/textures";
+  import SettingsMenu from "./components/SettingsMenu.svelte";
 
   let {
     song,
@@ -27,66 +37,19 @@
   }: {
     song: SongCatalogItem;
     jsonlRaw: string;
-    /** assets의 윤곽선(Sobel edge) PNG URL. 있으면 글자 위에 옅게 오버레이할 수 있다. */
+    /** Sobel edge outline PNG URL from assets. If present, it can be faintly overlaid on top of the glyphs. */
     edgeUrl?: string;
     onBack: () => void;
   } = $props();
 
-  type SongRecord = {
-    type: "song";
-    songUrl: string;
-    duration?: number;
-  };
-
-  type CharRecord = {
-    type: "char";
-    charId: string;
-    startTime: number;
-    phraseId: string;
-  };
-
-  type PlacementRecord = {
-    type: "placement";
-    charId: string;
-    step: number;
-    char: string;
-    pos: {
-      x: number;
-      y: number;
-      scale: number;
-      opacity: number;
-      rotation: number;
-    };
-    color: [number, number, number];
-  };
-
-  type TimedPlacementRecord = PlacementRecord & {
-    startTime: number;
-    phraseId: string;
-  };
-
-  type PhraseLine = {
-    phraseId: string;
-    text: string;
-    startTime: number;
-    endTime: number;
-  };
-
-  type ParsedJsonlData = {
-    song: SongRecord | null;
-    timedPlacements: TimedPlacementRecord[];
-    phrases: PhraseLine[];
-  };
-
-  // 월드 좌표계 크기. jsonl의 x,y는 원본 이미지 크기(= naturalSize * dpr) 기준으로
-  // 정규화되어 있으므로, 이미지 로드 후 그 크기로 맞춰 소스 캔버스를 1:1 복제한다.
+  // World coordinate system size. The x,y in the jsonl are normalized against the original
+  // image size (= naturalSize * dpr), so after the image loads we match that size to replicate the source canvas 1:1.
   let baseWidth = $state(1920);
   let baseHeight = $state(1080);
   const minZoom = 0.1;
   const maxZoom = 8;
-  const textAliveToken = "EP1gDDyqnNEHrnOD";
-  // 글자 등장 애니메이션 길이(ms). 이 시간만큼 startTime 이전에 등장이 시작되어
-  // 정확히 startTime에 목표 크기에 도달한다.
+  // Glyph appearance animation length (ms). The appearance starts this much before startTime
+  // so it reaches the target size exactly at startTime.
   const appearAnimMs = 100;
 
   let media = $state<HTMLDivElement | null>(null);
@@ -94,13 +57,13 @@
 
   onMount(() => {
     if (!media) return;
-    // 영상 정보가 오기 전까지의 임시 길이로 jsonl의 duration을 사용한다.
+    // Use the jsonl duration as a temporary length until the video info arrives.
     playbackDuration = songRecord?.duration ?? 0;
-    // jsonl 좌표계와 동일한 월드 크기(원본 이미지 크기 × dpr)로 맞춘다.
+    // Match the world size (original image size × dpr) to the jsonl coordinate system.
     applyImageBaseSize(song.imageUrl);
     textAlivePlayer = new Player({
       app: {
-        token: textAliveToken,
+        token: TEXT_ALIVE_TOKEN,
       },
       mediaElement: media,
       mediaBannerPosition: "bottom right",
@@ -128,8 +91,8 @@
       /* 再生位置の情報が更新されたら呼ばれる */
       onTimeUpdate(position: number) {
         playbackPosition = position;
-        // 재생 전 초기 렌더링용 onTimeUpdate, 그리고 탐색 중 옛 위치 업데이트로
-        // 글자가 깜빡이는 것을 방지한다.
+        // Prevent glyphs from flickering due to the onTimeUpdate used for initial rendering before
+        // playback, and due to stale position updates during seeking.
         if (isPlaying && !isSeeking) syncPlacementsToTime(position);
       },
 
@@ -150,17 +113,17 @@
         syncPlacementsToTime(0);
       },
 
-      /* 탐색이 시작되면 호출 (옛 위치 동기화 차단) */
+      /* Called when seeking starts (blocks stale position sync) */
       onSeek() {
         beginSeek();
       },
 
-      /* 탐색이 완료되면 호출 (최종 위치로 한 번만 동기화) */
+      /* Called when seeking completes (syncs to the final position only once) */
       onSeekComplete(position: number) {
         endSeek(position);
       },
 
-      /* 음량이 (배너 등 외부에서) 바뀌면 전역 설정에 동기화한다 */
+      /* When the volume changes (e.g. from the banner or another external source), sync it to the global settings */
       onVolumeUpdate(level: number) {
         settings.setVolume(level);
       },
@@ -185,9 +148,9 @@
   }
 
   function parseJsonlData(raw: string): ParsedJsonlData {
-    let song: SongRecord | null = null;
-    const charsById = new SvelteMap<string, CharRecord>();
-    const placements: PlacementRecord[] = [];
+    let song: PlayerSongRecord | null = null;
+    const charsById = new SvelteMap<string, PlayerCharRecord>();
+    const placements: PlayerPlacementRecord[] = [];
     const phrases: PhraseLine[] = [];
     const lines = raw
       .split(/\r?\n/)
@@ -268,7 +231,7 @@
           });
         }
       } catch {
-        // JSONL 한 줄 오류는 무시하고 계속 파싱
+        // Ignore an error on a single JSONL line and keep parsing
       }
     }
 
@@ -290,21 +253,13 @@
     return { song, timedPlacements, phrases };
   }
 
-  function formatTime(ms: number): string {
-    const clamped = Math.max(0, Math.floor(ms));
-    const totalSec = Math.floor(clamped / 1000);
-    const minute = Math.floor(totalSec / 60);
-    const second = String(totalSec % 60).padStart(2, "0");
-    return `${minute}:${second}`;
-  }
-
   const parsedJsonl = $derived(parseJsonlData(jsonlRaw));
   const songRecord = $derived(parsedJsonl.song);
   const timedPlacements = $derived(parsedJsonl.timedPlacements);
   const lyricPhrases = $derived(parsedJsonl.phrases);
 
-  // 현재 재생 위치 기준으로 "이미 시작된 마지막 가사 줄"을 활성 줄로 본다.
-  // (해당 줄이 화면 중앙으로 올라오고, 다음 줄이 시작되면 위로 밀려난다)
+  // Based on the current playback position, treat the "last lyric line that has already started" as the active line.
+  // (That line rises to the center of the screen, and is pushed up once the next line starts)
   const activePhraseIndex = $derived.by(() => {
     const pos = playbackPosition;
     let index = -1;
@@ -315,35 +270,35 @@
     return index;
   });
 
-  // 별자리/강조 모드, 윤곽선 표시, 윤곽선 투명도, 음량은 전역 설정 스토어에서 읽는다.
-  // (설정 패널에서 값을 바꾸면 이 파생값들이 자동으로 갱신된다)
+  // Constellation/highlight mode, edge display, edge opacity, and volume are read from the global settings store.
+  // (Changing values in the settings panel automatically updates these derived values)
   const highlightMode = $derived(settings.getConstellation());
   const showEdges = $derived(settings.getShowEdges());
   const edgeOpacity = $derived(settings.getEdgeOpacity());
   const volume = $derived(settings.getVolume());
 
-  // 모드가 켜져 있으면 강조 줄은 "현재 재생 중인 줄"을 자동으로 따라간다.
-  // 다음 줄로 넘어가면 이전 줄 글자는 흐려지고 현재 줄 글자가 또렷해진다.
+  // When the mode is on, the highlighted line automatically follows the "currently playing line".
+  // When moving to the next line, the previous line's glyphs dim and the current line's glyphs become sharp.
   const highlightPhraseId = $derived(
     highlightMode ? (lyricPhrases[activePhraseIndex]?.phraseId ?? null) : null,
   );
 
-  // 가사 패널 자동 스크롤 / 사용자 스크롤 처리
+  // Lyrics panel auto-scroll / user-scroll handling
   let lyricLineEls: (HTMLElement | undefined)[] = [];
-  // 사용자가 직접 스크롤하는 동안에는 자동 스크롤을 잠시 멈춰 이전 가사를 볼 수 있게 한다.
+  // While the user is scrolling manually, pause auto-scroll briefly so they can view previous lyrics.
   let isUserScrollingLyrics = $state(false);
   let userScrollTimer: ReturnType<typeof setTimeout> | null = null;
 
   function markUserScrollingLyrics() {
     isUserScrollingLyrics = true;
     if (userScrollTimer !== null) clearTimeout(userScrollTimer);
-    // 일정 시간 입력이 없으면 다시 활성 줄로 자동 복귀한다.
+    // After a period with no input, automatically return to the active line.
     userScrollTimer = setTimeout(() => {
       isUserScrollingLyrics = false;
     }, 2600);
   }
 
-  // 가사 패널의 직접 스크롤(휠/터치)을 감지해 자동 스크롤을 일시 중단한다.
+  // Detect manual scrolling (wheel/touch) on the lyrics panel and temporarily suspend auto-scroll.
   function lyricsScrollWatcher(node: HTMLElement) {
     const handler = () => markUserScrollingLyrics();
     node.addEventListener("wheel", handler, { passive: true });
@@ -354,7 +309,7 @@
     };
   }
 
-  // 각 가사 줄 DOM을 인덱스로 등록해 두고, 자동 스크롤 시 해당 줄을 중앙으로 옮긴다.
+  // Register each lyric line's DOM by index, and move that line to the center during auto-scroll.
   function registerLyricLine(index: number) {
     return (node: HTMLElement) => {
       lyricLineEls[index] = node;
@@ -364,17 +319,21 @@
     };
   }
 
-  // 활성 줄이 바뀌면(또는 사용자 스크롤이 끝나면) 해당 줄을 중앙으로 부드럽게 스크롤한다.
+  // When the active line changes (or user scrolling ends), smoothly scroll that line to the center.
   $effect(() => {
     const index = activePhraseIndex;
     if (isUserScrollingLyrics) return;
     if (index < 0) return;
     const el = lyricLineEls[index];
     if (!el) return;
-    el.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+    el.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+      inline: "nearest",
+    });
   });
 
-  // Pixi tint는 원본 텍스처 색과 곱해지므로, 흰색 글자로 만들어야 color 값이 보존된다.
+  // Pixi tint is multiplied with the source texture color, so the glyphs must be white for the color value to be preserved.
   const charLayout = createCharCanvasLayout({
     textColor: "rgb(255, 255, 255)",
   });
@@ -386,9 +345,9 @@
   let isPlaying = $state(false);
   let playerReady = $state(false);
   let playerError = $state("");
-  // 탐색(seek) 진행 중에는 onTimeUpdate의 옛 위치 동기화를 막아 깜빡임을 방지한다.
+  // While seeking is in progress, block onTimeUpdate's stale position sync to prevent flickering.
   let isSeeking = false;
-  // onSeekComplete가 발생하지 않는 경우를 대비해 일정 시간 후 자동으로 탐색 상태를 해제한다.
+  // In case onSeekComplete never fires, automatically clear the seeking state after a set time.
   let seekSettleTimer: ReturnType<typeof setTimeout> | null = null;
 
   let app: PIXI.Application | null = null;
@@ -396,228 +355,39 @@
   let glyphLayer: PIXI.Container | null = null;
   let glyphSprites: PIXI.Sprite[] = [];
   let textureCache = new SvelteMap<string, PIXI.Texture>();
-  // 윤곽선(Sobel edge) 오버레이 스프라이트. $state로 두어 생성 시점에도
-  // 가시성 동기화 $effect가 다시 실행되도록 한다.
+  // Sobel edge overlay sprite. Kept as $state so that the visibility-sync $effect
+  // re-runs even at creation time.
   let edgeSprite = $state<PIXI.Sprite | null>(null);
 
-  // === 등장 시 산개하는 불꽃놀이 파티클 ===
-  // 글자가 작거나 배경과 비슷한 색이어도 등장을 알아챌 수 있도록,
-  // 글자 등장 순간 중심에서 작은 원형 파티클이 방사형으로 퍼지게 한다.
-  const fireworkCount = 10; // 글자당 파티클 개수
-  const fireworkLifeMs = 650; // 파티클 수명(ms)
-  // 등장 직후(이 시간 이내)에 추가된 글자에만 파티클을 터뜨려, 탐색/되감기 시 한꺼번에 터지는 것을 막는다.
+  // === Fireworks particles that scatter on appearance ===
+  // So that a glyph's appearance is noticeable even when it is small or a similar color to the background,
+  // small circular particles radiate outward from the center the moment a glyph appears.
+  // The particle behavior/lifetime/size logic is encapsulated in FireworkSystem (src/pixijs/fireworks).
+  // Particles fire only for glyphs added right after appearing (within this time window), to avoid them all bursting at once during seeking/rewinding.
   const fireworkFreshWindowMs = 400;
-  // 퍼지는 반경은 글자 크기에 비례시키되(큰 글자일수록 시원하게 퍼짐),
-  // 입자 자체 크기는 상한선을 둬서 너무 커지지 않게 한다.
-  const fireworkSpreadFactor = 0.5; // 퍼짐 = 글자 크기 × 이 값
-  const fireworkSpreadMinRatio = 0.02; // 퍼짐 최소값(월드 폭 대비)
-  const fireworkRadiusFactor = 0.05; // 입자 반지름 = 글자 크기 × 이 값
-  const fireworkRadiusMaxRatio = 0.0062; // 입자 반지름 상한(월드 폭 대비)
-  const fireworkRadiusMinRatio = 0.0012; // 입자 반지름 하한(월드 폭 대비)
+  let fireworks: FireworkSystem | null = null;
 
-  type Spark = {
-    sprite: PIXI.Sprite;
-    vx: number; // 월드 좌표 기준 속도(단위/ms)
-    vy: number;
-    ageMs: number;
-    lifeMs: number;
-    baseScale: number;
-  };
-
-  let particleLayer: PIXI.Container | null = null;
-  let sparkTexture: PIXI.Texture | null = null;
-  let sparks: Spark[] = [];
-
-  // 별자리 연결선용 그래픽스(글자 레이어 뒤에 그려 글자가 선 위에 보이게 한다)
+  // Graphics for the constellation connecting lines (drawn behind the glyph layer so glyphs appear on top of the lines)
   let constellationGfx: PIXI.Graphics | null = null;
-  // dim 처리 시 비강조 글자의 투명도 배율
+  // Opacity multiplier for non-highlighted glyphs when dimming
   const highlightDimFactor = 0.12;
 
   let dragActive = false;
   let lastPointerX = 0;
   let lastPointerY = 0;
 
-  function makeTint(rgb: [number, number, number]): number {
-    const r = Math.min(255, Math.max(0, Math.round(rgb[0] * 255)));
-    const g = Math.min(255, Math.max(0, Math.round(rgb[1] * 255)));
-    const b = Math.min(255, Math.max(0, Math.round(rgb[2] * 255)));
-    return (r << 16) | (g << 8) | b;
-  }
-
   function getCharTexture(char: string): PIXI.Texture | null {
     const cached = textureCache.get(char);
     if (cached) return cached;
 
-    const canvas = document.createElement("canvas");
-    canvas.width = charLayout.canvasPixelSize;
-    canvas.height = charLayout.canvasPixelSize;
-    drawCenteredChar(canvas, char, charLayout);
-
-    const texture = PIXI.Texture.from(canvas);
+    const texture = createCharTexture(char, charLayout);
     textureCache.set(char, texture);
     return texture;
   }
 
-  // 부드러운 원형(가운데가 밝고 가장자리가 투명한) 스파크 텍스처를 1회 생성해 모든 파티클이 공유한다.
-  function createSparkTexture(): PIXI.Texture {
-    const size = 64;
-    const canvas = document.createElement("canvas");
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext("2d");
-    if (ctx) {
-      const gradient = ctx.createRadialGradient(
-        size / 2,
-        size / 2,
-        0,
-        size / 2,
-        size / 2,
-        size / 2,
-      );
-      gradient.addColorStop(0, "rgba(255, 255, 255, 1)");
-      gradient.addColorStop(0.35, "rgba(255, 255, 255, 0.9)");
-      gradient.addColorStop(1, "rgba(255, 255, 255, 0)");
-      ctx.fillStyle = gradient;
-      ctx.fillRect(0, 0, size, size);
-    }
-    return PIXI.Texture.from(canvas);
-  }
-
-  function rgbToHsl(
-    r: number,
-    g: number,
-    b: number,
-  ): { h: number; s: number; l: number } {
-    const max = Math.max(r, g, b);
-    const min = Math.min(r, g, b);
-    const l = (max + min) / 2;
-    const delta = max - min;
-    let h = 0;
-    let s = 0;
-    if (delta > 1e-6) {
-      s = l > 0.5 ? delta / (2 - max - min) : delta / (max + min);
-      if (max === r) h = ((g - b) / delta) % 6;
-      else if (max === g) h = (b - r) / delta + 2;
-      else h = (r - g) / delta + 4;
-      h *= 60;
-      if (h < 0) h += 360;
-    }
-    return { h, s, l };
-  }
-
-  function hslToTint(h: number, s: number, l: number): number {
-    const c = (1 - Math.abs(2 * l - 1)) * s;
-    const hp = h / 60;
-    const x = c * (1 - Math.abs((hp % 2) - 1));
-    let r = 0;
-    let g = 0;
-    let b = 0;
-    if (hp < 1) [r, g, b] = [c, x, 0];
-    else if (hp < 2) [r, g, b] = [x, c, 0];
-    else if (hp < 3) [r, g, b] = [0, c, x];
-    else if (hp < 4) [r, g, b] = [0, x, c];
-    else if (hp < 5) [r, g, b] = [x, 0, c];
-    else [r, g, b] = [c, 0, x];
-    const m = l - c / 2;
-    const ri = Math.round((r + m) * 255);
-    const gi = Math.round((g + m) * 255);
-    const bi = Math.round((b + m) * 255);
-    return (ri << 16) | (gi << 8) | bi;
-  }
-
-  // 글자 색에서 출발해 채도를 높인 "스파크 색"을 만든다. exclusion 합성에서는
-  // 색이 밝을수록 배경과의 차이(반전)가 강해지므로 명도를 다소 높게 잡는다.
-  // 글자가 거의 무채색이면 황금빛(45°)으로 대체해 단조로운 흰빛이 되지 않게 한다.
-  function makeSparkTint(rgb: [number, number, number]): number {
-    const { h, s } = rgbToHsl(rgb[0], rgb[1], rgb[2]);
-    const baseHue = s < 0.2 ? 45 : h;
-    const hue = (baseHue + (Math.random() - 0.5) * 30 + 360) % 360;
-    const sat = Math.min(1, Math.max(0.9, s));
-    const light = 0.6 + (Math.random() - 0.5) * 0.12;
-    return hslToTint(hue, sat, light);
-  }
-
-  // 중심(cx, cy)에서 fireworkCount개의 파티클을 방사형으로 흩뿌린다.
-  // 퍼지는 반경은 글자 크기에 비례하지만, 입자 자체 크기는 상한선 안에서만 커진다.
-  function spawnFirework(
-    cx: number,
-    cy: number,
-    glyphWorldSize: number,
-    color: [number, number, number],
-  ) {
-    if (!particleLayer || !sparkTexture) return;
-
-    const spread = Math.max(
-      baseWidth * fireworkSpreadMinRatio,
-      glyphWorldSize * fireworkSpreadFactor,
-    );
-    // 입자 반지름은 글자 크기에 따르되, 상·하한 사이로 제한해 과도하게 커지지 않게 한다.
-    const radius = Math.min(
-      baseWidth * fireworkRadiusMaxRatio,
-      Math.max(
-        baseWidth * fireworkRadiusMinRatio,
-        glyphWorldSize * fireworkRadiusFactor,
-      ),
-    );
-
-    for (let i = 0; i < fireworkCount; i += 1) {
-      const angle =
-        (i / fireworkCount) * Math.PI * 2 + (Math.random() - 0.5) * 0.5;
-      // 감속(댐핑)을 고려해 수명 절반 시점 적분이 대략 spread가 되도록 속도를 잡는다.
-      const speed =
-        ((spread * (1.1 + Math.random() * 0.8)) / fireworkLifeMs) * 2;
-
-      const sprite = new PIXI.Sprite(sparkTexture);
-      sprite.anchor.set(0.5);
-      sprite.position.set(cx, cy);
-      sprite.tint = makeSparkTint(color);
-      // exclusion: 배경과 "차이"를 내는 합성이라 어떤 배경색 위에서도 또렷하게
-      // 구분되며(검은 배경엔 색 그대로, 밝은 배경엔 반전), 입자 자체 색감도 어느 정도 유지된다.
-      sprite.blendMode = "exclusion";
-
-      const baseScale =
-        ((radius * 2) / sparkTexture.width) * (0.7 + Math.random() * 0.6);
-      sprite.scale.set(baseScale);
-
-      particleLayer.addChild(sprite);
-      sparks.push({
-        sprite,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed,
-        ageMs: 0,
-        lifeMs: fireworkLifeMs * (0.8 + Math.random() * 0.4),
-        baseScale,
-      });
-    }
-  }
-
-  // 매 프레임 파티클을 갱신: 바깥으로 퍼지며(점점 감속) 페이드아웃·축소된다.
-  function updateSparks(ticker: PIXI.Ticker) {
-    if (sparks.length === 0) return;
-    const dt = ticker.deltaMS;
-    for (let i = sparks.length - 1; i >= 0; i -= 1) {
-      const spark = sparks[i];
-      spark.ageMs += dt;
-      const tNorm = spark.ageMs / spark.lifeMs;
-      if (tNorm >= 1) {
-        spark.sprite.destroy();
-        sparks.splice(i, 1);
-        continue;
-      }
-      const damp = 1 - tNorm; // 시간이 갈수록 속도를 줄인다.
-      spark.sprite.position.x += spark.vx * dt * damp;
-      spark.sprite.position.y += spark.vy * dt * damp;
-      const fade = 1 - tNorm;
-      spark.sprite.alpha = fade * fade;
-      spark.sprite.scale.set(spark.baseScale * (0.6 + 0.4 * fade));
-    }
-  }
-
-  function clearSparks() {
-    for (const spark of sparks) {
-      spark.sprite.destroy();
-    }
-    sparks = [];
+  // Update the firework particles every frame (the system handles spreading/fading/disposal internally).
+  function updateFireworks(ticker: PIXI.Ticker) {
+    fireworks?.update(ticker);
   }
 
   function addPlacementAtIndex(index: number, spawnFx = false) {
@@ -634,7 +404,7 @@
       placement.pos.x * baseWidth,
       placement.pos.y * baseHeight,
     );
-    // 초기 크기는 0에서 시작하고, 실제 크기는 updateGlyphAnimations에서 매 갱신마다 설정한다.
+    // The initial size starts at 0; the actual size is set on every update in updateGlyphAnimations.
     sprite.scale.set(0, 0);
     sprite.alpha = placement.pos.opacity;
     sprite.rotation = (placement.pos.rotation * Math.PI) / 180;
@@ -644,13 +414,14 @@
     glyphSprites.push(sprite);
     shownCount += 1;
 
-    if (spawnFx) {
+    if (spawnFx && fireworks) {
       const glyphWorldSize = charLayout.canvasPixelSize * placement.pos.scale;
-      spawnFirework(
+      fireworks.spawn(
         placement.pos.x * baseWidth,
         placement.pos.y * baseHeight,
         glyphWorldSize,
         placement.color,
+        baseWidth,
       );
     }
   }
@@ -672,7 +443,7 @@
     shownCount = 0;
   }
 
-  // 현재 위치 기준으로 보이는 글자들의 등장 애니메이션(크기 0 → 목표 크기, quadOut) 갱신
+  // Update the appearance animation (size 0 → target size, quadOut) of the glyphs visible at the current position
   function updateGlyphAnimations(position: number) {
     for (let i = 0; i < shownCount; i += 1) {
       const sprite = glyphSprites[i];
@@ -688,7 +459,7 @@
     }
   }
 
-  // 강조 모드: 선택 줄의 글자만 원래 투명도, 나머지는 흐리게.
+  // Highlight mode: only the selected line's glyphs keep their original opacity; the rest are dimmed.
   function applyGlyphHighlight(phraseId: string | null) {
     for (let i = 0; i < shownCount; i += 1) {
       const sprite = glyphSprites[i];
@@ -701,16 +472,16 @@
     }
   }
 
-  // 강조 줄의 "현재 보이는" 글자들을 등장 순서대로 잇는 별자리 선을 다시 그린다.
-  // 선은 글자 중심까지 닿지 않고 살짝 떨어진 지점(gap)에서 끝난다.
-  // (글자가 하나씩 생겨날수록 선분이 점진적으로 늘어난다)
+  // Redraw the constellation lines connecting the highlighted line's "currently visible" glyphs in appearance order.
+  // The lines do not reach the glyph centers but end at a slightly offset point (gap).
+  // (As glyphs appear one by one, the line segments grow progressively)
   function redrawConstellation(phraseId: string | null) {
     const gfx = constellationGfx;
     if (!gfx) return;
     gfx.clear();
     if (!phraseId) return;
 
-    // 노드: 글자 위치 + 글자 크기에 따른 gap(선이 멈출 거리)
+    // Node: glyph position + a gap based on glyph size (the distance at which the line stops)
     const nodes: { x: number; y: number; gap: number }[] = [];
     for (let i = 0; i < shownCount; i += 1) {
       const sprite = glyphSprites[i];
@@ -728,7 +499,7 @@
 
     const lineWidth = Math.max(1, baseWidth * 0.0016);
 
-    // 양 끝을 각 글자에서 gap만큼 떼어낸 선분들을 모은다.
+    // Collect line segments whose endpoints are offset from each glyph by the gap.
     const segments: { ax: number; ay: number; bx: number; by: number }[] = [];
     for (let i = 0; i < nodes.length - 1; i += 1) {
       const a = nodes[i];
@@ -736,7 +507,7 @@
       const dx = b.x - a.x;
       const dy = b.y - a.y;
       const len = Math.hypot(dx, dy);
-      // 두 글자가 너무 가까워 gap을 빼면 선이 뒤집히는 경우는 건너뛴다.
+      // Skip cases where the two glyphs are so close that subtracting the gap would flip the line.
       if (len <= a.gap + b.gap) continue;
       const ux = dx / len;
       const uy = dy / len;
@@ -756,7 +527,7 @@
       }
     };
 
-    // 선: 어두운 외곽선(어떤 배경에서도 보이게) → 밝은 별빛 코어 순.
+    // Lines: dark outline first (so it's visible on any background), then the bright starlight core.
     traceSegments();
     gfx.stroke({
       width: lineWidth * 2.6,
@@ -773,23 +544,23 @@
     });
   }
 
-  // 강조 줄/표시 글자/월드 크기가 바뀌면 dim과 별자리 선을 다시 적용한다.
+  // When the highlighted line / visible glyphs / world size change, reapply the dimming and the constellation lines.
   $effect(() => {
     const phraseId = highlightPhraseId;
-    // shownCount, baseWidth, timedPlacements 의존성은 아래 함수 호출 내부 읽기로 추적된다.
+    // The shownCount, baseWidth, and timedPlacements dependencies are tracked via the reads inside the function calls below.
     applyGlyphHighlight(phraseId);
     redrawConstellation(phraseId);
   });
 
-  // 윤곽선 오버레이 표시/숨김 + 투명도(전역 설정)를 스프라이트에 반영한다.
+  // Reflect the edge overlay show/hide + opacity (global settings) onto the sprite.
   $effect(() => {
     if (!edgeSprite) return;
     edgeSprite.visible = showEdges;
     edgeSprite.alpha = edgeOpacity;
   });
 
-  // 음량(전역 설정)을 TextAlive 플레이어에 반영한다.
-  // playerReady가 true가 된 뒤부터 textAlivePlayer가 존재하므로 그때 최초 적용된다.
+  // Reflect the volume (global settings) onto the TextAlive player.
+  // textAlivePlayer exists only after playerReady becomes true, so it is first applied at that point.
   $effect(() => {
     const level = volume;
     if (textAlivePlayer && playerReady) {
@@ -800,22 +571,22 @@
   function syncPlacementsToTime(position: number) {
     if (!glyphLayer) return;
 
-    // timedPlacements는 startTime 기준 정렬되어 있으므로
-    // (startTime - 애니메이션 시간) <= 현재 위치 인 placement 개수를 선형으로 센다.
-    // 애니메이션 시간만큼 미리 등장시켜야 startTime에 목표 크기에 도달한다.
+    // Since timedPlacements is sorted by startTime, linearly count the number of placements
+    // where (startTime - animation time) <= current position.
+    // They must appear ahead by the animation time so they reach the target size at startTime.
     let targetCount = 0;
     for (const placement of timedPlacements) {
       if (placement.startTime - appearAnimMs <= position) targetCount += 1;
       else break;
     }
 
-    // 부족하면 추가, 많으면 제거 (seek/되감기 모두 대응)
+    // Add if too few, remove if too many (handles both seeking and rewinding)
     while (shownCount < targetCount) {
       const index = shownCount;
       const placement = timedPlacements[index];
       const appearTime = placement.startTime - appearAnimMs;
-      // 실제 재생 중 "지금 막" 등장한 글자에만 파티클을 터뜨린다.
-      // (탐색/되감기/초기 렌더의 대량 추가에서는 터지지 않음)
+      // Fire particles only for glyphs that appeared "just now" during actual playback.
+      // (Does not fire on the bulk additions of seeking/rewinding/initial render)
       const isFresh =
         isPlaying &&
         !isSeeking &&
@@ -826,7 +597,7 @@
       removeLastPlacement();
     }
 
-    // 보이는 글자들의 크기 애니메이션을 현재 위치에 맞게 갱신
+    // Update the size animation of the visible glyphs to match the current position
     updateGlyphAnimations(position);
   }
 
@@ -847,14 +618,14 @@
     syncPlacementsToTime(0);
   }
 
-  // 탐색 시작: 탐색 상태로 표시하고, 이벤트가 안 오는 경우를 대비한 자동 해제 타이머를 건다.
+  // Start seeking: mark the seeking state and set an auto-clear timer in case the event never arrives.
   function beginSeek() {
     isSeeking = true;
     if (seekSettleTimer !== null) clearTimeout(seekSettleTimer);
     seekSettleTimer = setTimeout(() => endSeek(playbackPosition), 300);
   }
 
-  // 탐색 종료: 상태를 해제하고 최종 위치로 한 번만 동기화한다.
+  // End seeking: clear the state and sync to the final position only once.
   function endSeek(position: number) {
     if (seekSettleTimer !== null) {
       clearTimeout(seekSettleTimer);
@@ -865,8 +636,8 @@
     syncPlacementsToTime(position);
   }
 
-  // 드래그/클릭 중: 화면(시간 표시와 글자)만 즉시 갱신.
-  // 재생 중 드래그 시 onTimeUpdate가 옛 위치로 덮어쓰지 않도록 탐색 상태로 표시한다.
+  // During drag/click: immediately update only the display (the time indicator and glyphs).
+  // Mark the seeking state so onTimeUpdate doesn't overwrite with a stale position while dragging during playback.
   function handleScrub(event: Event) {
     const input = event.currentTarget as HTMLInputElement;
     const value = Number(input.value);
@@ -875,8 +646,8 @@
     syncPlacementsToTime(value);
   }
 
-  // 드래그 종료/클릭 확정: 실제 오디오 재생 위치 이동
-  // (탐색 상태는 onSeekComplete 또는 자동 해제 타이머에서 해제된다)
+  // Drag end / click confirm: move the actual audio playback position
+  // (The seeking state is cleared by onSeekComplete or the auto-clear timer)
   function handleSeekCommit(event: Event) {
     if (!textAlivePlayer || !playerReady) return;
     const input = event.currentTarget as HTMLInputElement;
@@ -884,8 +655,8 @@
     textAlivePlayer.requestMediaSeek(Number(input.value));
   }
 
-  // 곡 이미지의 실제 크기를 읽어 월드 좌표계(baseWidth/baseHeight)를 소스와 동일하게 맞춘다.
-  // 소스: canvasWidth = image.naturalWidth * dpr, canvasHeight = image.naturalHeight * dpr
+  // Read the actual size of the song image and match the world coordinate system (baseWidth/baseHeight) to the source.
+  // Source: canvasWidth = image.naturalWidth * dpr, canvasHeight = image.naturalHeight * dpr
   function applyImageBaseSize(url: string) {
     const img = new Image();
     img.onload = () => {
@@ -893,14 +664,14 @@
       const dpr = charLayout.devicePixelRatio;
       baseWidth = img.naturalWidth * dpr;
       baseHeight = img.naturalHeight * dpr;
-      // 새 월드 크기에 맞춰 카메라를 다시 맞추고, 현재 위치 기준으로 글자 위치를 재배치한다.
+      // Re-fit the camera to the new world size, and reposition the glyphs based on the current position.
       resetView();
       repositionPlacements();
     };
     img.src = url;
   }
 
-  // baseWidth/baseHeight 변경 시 이미 추가된 스프라이트의 좌표/크기를 다시 계산한다.
+  // When baseWidth/baseHeight change, recalculate the coordinates/size of the already-added sprites.
   function repositionPlacements() {
     if (edgeSprite) {
       edgeSprite.width = baseWidth;
@@ -985,8 +756,8 @@
     }
   }
 
-  // 윤곽선 PNG(검은 선 + 알파)를 로드해 글자 위에 옅게(30%) 얹는다.
-  // camera에 가장 마지막으로 addChild 되므로 최상단에 위치한다.
+  // Load the edge PNG (black lines + alpha) and lay it faintly (30%) over the glyphs.
+  // It is the last child added to the camera, so it sits at the very top.
   async function loadEdgeOverlay(url: string, isActive: () => boolean) {
     const texture = await PIXI.Assets.load<PIXI.Texture>(url);
     if (!isActive() || !camera) return;
@@ -995,7 +766,7 @@
     sprite.height = baseHeight;
     sprite.alpha = settings.getEdgeOpacity();
     sprite.visible = settings.getShowEdges();
-    // 오버레이는 포인터 이벤트(드래그/줌)를 가로채지 않도록 한다.
+    // Keep the overlay from intercepting pointer events (drag/zoom).
     sprite.eventMode = "none";
     camera.addChild(sprite);
     edgeSprite = sprite;
@@ -1005,12 +776,10 @@
     app = new PIXI.Application();
     camera = new PIXI.Container();
     glyphLayer = new PIXI.Container();
-    particleLayer = new PIXI.Container();
     constellationGfx = new PIXI.Graphics();
-    // 별자리 선은 글자 뒤에, 파티클은 글자 위에 오도록 순서대로 추가한다.
+    // Add the constellation lines first so they sit behind the glyphs (the particle layer is added above the glyphs after init).
     camera.addChild(constellationGfx);
     camera.addChild(glyphLayer);
-    camera.addChild(particleLayer);
     app.stage.addChild(camera);
 
     await app.init({
@@ -1018,7 +787,7 @@
       backgroundAlpha: 1,
       backgroundColor: 0x000000,
       antialias: true,
-      // 고급 블렌드 모드('exclusion')가 WebGL에서 동작하려면 백버퍼가 필요하다.
+      // A back buffer is required for advanced blend modes ('exclusion') to work in WebGL.
       useBackBuffer: true,
       width: window.innerWidth,
       height: window.innerHeight,
@@ -1028,17 +797,18 @@
       app = null;
       camera = null;
       glyphLayer = null;
-      particleLayer = null;
       constellationGfx = null;
       return;
     }
 
     canvas.style.touchAction = "none";
-    sparkTexture = createSparkTexture();
-    app.ticker.add(updateSparks);
+    // Add the particle layer here so it sits above the glyphs (at the top, but below the edge overlay).
+    fireworks = new FireworkSystem();
+    camera.addChild(fireworks.layer);
+    app.ticker.add(updateFireworks);
     resetView();
 
-    // 윤곽선 오버레이: 렌더러/카메라가 준비된 뒤 글자 위(최상단)에 올린다.
+    // Edge overlay: placed above the glyphs (at the top) after the renderer/camera are ready.
     if (edgeUrl) void loadEdgeOverlay(edgeUrl, isActive);
 
     canvas.addEventListener("pointerdown", onPointerDown);
@@ -1062,13 +832,13 @@
     window.removeEventListener("resize", onResize);
 
     clearPlacements();
-    clearSparks();
     for (const texture of textureCache.values()) {
       texture.destroy(true);
     }
     textureCache.clear();
-    sparkTexture?.destroy(true);
-    sparkTexture = null;
+
+    fireworks?.destroy();
+    fireworks = null;
 
     constellationGfx?.destroy();
     constellationGfx = null;
@@ -1080,7 +850,6 @@
     app = null;
     camera = null;
     glyphLayer = null;
-    particleLayer = null;
   }
 
   function attachCanvas(node: HTMLCanvasElement) {
@@ -1153,8 +922,22 @@
     >
       {#if isPlaying}
         <svg viewBox="0 0 24 24" aria-hidden="true">
-          <rect x="6" y="5" width="4" height="14" fill="currentColor" stroke="none" />
-          <rect x="14" y="5" width="4" height="14" fill="currentColor" stroke="none" />
+          <rect
+            x="6"
+            y="5"
+            width="4"
+            height="14"
+            fill="currentColor"
+            stroke="none"
+          />
+          <rect
+            x="14"
+            y="5"
+            width="4"
+            height="14"
+            fill="currentColor"
+            stroke="none"
+          />
         </svg>
       {:else}
         <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -1217,8 +1000,8 @@
     overflow: hidden;
   }
 
-  /* 화면 가운데 아래쪽에 떠 있는 가사 패널. 한 번에 약 세 줄만 보이도록
-     높이를 제한하고, 위/아래 가장자리는 마스크로 서서히 사라지게 한다. */
+  /* Lyrics panel floating at the bottom-center of the screen. Its height is limited so that
+     only about three lines are visible at once, and the top/bottom edges fade out via a mask. */
   .lyrics-panel {
     position: fixed;
     left: 50%;
@@ -1250,7 +1033,7 @@
     display: none;
   }
 
-  /* 첫/마지막 줄도 중앙까지 올라올 수 있도록 위아래로 패널 높이의 절반만큼 여백을 둔다. */
+  /* Add top/bottom padding equal to half the panel height so the first/last lines can also rise to the center. */
   .lyrics-list {
     display: flex;
     flex-direction: column;
@@ -1269,13 +1052,13 @@
     font-weight: 600;
     line-height: 1.4;
     letter-spacing: 0.01em;
-    /* 가사는 단순 표시용이라 클릭 동작이 없다. */
+    /* Lyrics are display-only, so there is no click action. */
     cursor: default;
     user-select: none;
     opacity: 0.42;
     transform: scale(0.94);
     transform-origin: center center;
-    /* 단색 글자가 배경과 겹쳐도 보이도록 진한 외곽 그림자를 준다. */
+    /* Apply a strong outline shadow so the solid-color text stays visible even when it overlaps the background. */
     text-shadow:
       0 0 2px rgba(0, 0, 0, 0.95),
       0 1px 3px rgba(0, 0, 0, 0.9),
@@ -1286,12 +1069,12 @@
       color 0.45s ease;
   }
 
-  /* 이미 지나간 가사는 더 흐리게 */
+  /* Lyrics that have already passed are dimmed further */
   .lyric-line.past {
     opacity: 0.28;
   }
 
-  /* 현재 부르는 가사 줄: 크게, 또렷하게, 살짝 강조 색 */
+  /* The currently sung lyric line: larger, sharper, with a slight accent color */
   .lyric-line.active {
     opacity: 1;
     transform: scale(1.12);
@@ -1302,7 +1085,7 @@
       0 0 14px rgba(80, 140, 255, 0.55);
   }
 
-  /* 별자리 모드로 선택된 줄: 별빛 색으로 표시 */
+  /* Line selected in constellation mode: shown in a starlight color */
   .lyric-line.selected {
     opacity: 1;
     color: #cfe6ff;
@@ -1318,7 +1101,7 @@
     }
   }
 
-  /* 상단 가운데에 떠 있는 음악 플레이어 바. 재생 컨트롤과 탐색 타임라인을 한 줄에 모은다. */
+  /* Music player bar floating at the top-center. Groups the playback controls and the seek timeline in one row. */
   .controls {
     position: fixed;
     top: 16px;
@@ -1331,11 +1114,10 @@
     width: min(720px, calc(100% - 32px));
     padding: 8px 12px;
     background: rgba(14, 14, 20, 0.62);
-    border: 1px solid rgba(255, 255, 255, 0.14);
-    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 4px;
     color: #fff;
     backdrop-filter: blur(10px);
-    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
   }
 
   .icon-btn {
@@ -1380,7 +1162,7 @@
     cursor: default;
   }
 
-  /* 재생/정지 버튼은 메인 액션이라 흰색 원형으로 강조한다. */
+  /* The play/pause button is the main action, so it is emphasized as a white circle. */
   .play-btn {
     width: 44px;
     height: 44px;
@@ -1447,7 +1229,7 @@
     transform: translateX(-50%);
     z-index: 11;
     padding: 8px 14px;
-    border-radius: 8px;
+    border-radius: 4px;
     background: rgba(40, 0, 0, 0.8);
     color: #ff8a8a;
     font-size: 0.85rem;

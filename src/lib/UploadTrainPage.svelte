@@ -1,49 +1,41 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
-  import { t } from "./i18n";
-  import type { SongCatalogItem } from "./webgpu/glyph/replayIO";
-  import songSource from "./webgpu/glyph/songSource";
-  import sample1 from "./assets/sample_1.png";
-  import sample2 from "./assets/sample_2.png";
-  import App from "./App.svelte";
+  import { t } from "../i18n";
+  import songSource from "../const/songCatalog";
+  import type { SongCatalogItem } from "../types/song";
+  import type { TrainPhase } from "../types/train";
+  import sample1 from "../assets/sample_1.png";
+  import sample2 from "../assets/sample_2.png";
+  import GlyphTrainer from "./GlyphTrainer.svelte";
 
   let {
     onBack,
     onPlay,
   }: {
     onBack: () => void;
-    /** 훈련 완료 후 재생 화면으로 이동 (songId 전달) */
+    /** Move to the playback screen after training completes (passes songId) */
     onPlay: (songId: string) => void;
   } = $props();
 
-  // 선택 가능한 예시 이미지 목록
+  // List of selectable sample images
   const sampleImages = [
     { url: sample1, label: "sample 1" },
     { url: sample2, label: "sample 2" },
   ];
 
-  type TrainPhase =
-    | "preparing"
-    | "extracting"
-    | "training"
-    | "finalizing"
-    | "done"
-    | "cancelled"
-    | "error";
-
   let imageUrl = $state<string | null>(null);
   let fileName = $state("");
   let selectedSongId = $state(songSource[0].id);
 
-  // 업로드로 생성한 object URL만 따로 추적해 정리(revoke)한다.
-  // 예시 이미지는 번들 에셋 URL이라 revoke 대상이 아니다.
+  // Track and clean up (revoke) only the object URL created from an upload.
+  // Sample images are bundled asset URLs, so they are not subject to revoke.
   let objectUrl: string | null = null;
 
-  // 훈련 시작 시점에 확정된 이미지/곡. App은 이 값으로 마운트된다.
+  // The image/song fixed at the moment training starts. App is mounted with these values.
   let activeImageUrl = $state<string | null>(null);
   let activeSong = $state<SongCatalogItem | null>(null);
 
-  // 훈련 진행 단계 / 취소 신호는 부모(이 컴포넌트)가 소유한다.
+  // The training phase / cancellation signal are owned by the parent (this component).
   let trainingPhase = $state<TrainPhase | null>(null);
   let abortController = $state<AbortController | null>(null);
 
@@ -58,7 +50,7 @@
       trainingPhase === "finalizing",
   );
 
-  // 이미지/곡이 바뀐 채로 다시 "훈련 시작"을 누르면 App을 새로 마운트하기 위한 키
+  // Key used to remount App when "Start training" is pressed again with a changed image/song
   const appKey = $derived(
     activeImageUrl ? `${activeImageUrl}::${activeSong?.id ?? ""}` : "",
   );
@@ -193,7 +185,7 @@
     <main class="app-panel">
       {#if activeImageUrl && activeSong}
         {#key appKey}
-          <App
+          <GlyphTrainer
             imageUrl={activeImageUrl}
             song={activeSong}
             signal={abortController?.signal}
@@ -214,8 +206,15 @@
     position: fixed;
     inset: 0;
     overflow: auto;
-    background: radial-gradient(circle at 50% 0%, #1a1a26 0%, #0b0b10 60%);
-    color: #fff;
+    background: linear-gradient(
+      180deg,
+      #bfe7fb 0%,
+      #d8f1fb 26%,
+      #eef9f3 56%,
+      #fdf6e6 82%,
+      #fff4dc 100%
+    );
+    color: var(--ink);
   }
 
   .workspace {
@@ -247,35 +246,37 @@
     justify-content: center;
     min-height: 320px;
     padding: 24px;
-    border: 1px dashed rgba(255, 255, 255, 0.15);
-    border-radius: 14px;
-    color: rgba(255, 255, 255, 0.45);
+    border: 1px dashed rgba(43, 183, 172, 0.4);
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.5);
+    color: var(--ink-soft);
     text-align: center;
   }
 
   .upload-header h1 {
     margin: 12px 0 8px;
     font-size: 1.8rem;
+    color: var(--ink);
   }
 
   .upload-header p {
     margin: 0;
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--ink-soft);
     font-size: 0.95rem;
   }
 
   .back {
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    background: rgba(255, 255, 255, 0.04);
-    color: inherit;
+    border: 1px solid rgba(43, 183, 172, 0.5);
+    background: rgba(255, 255, 255, 0.6);
+    color: var(--teal-deep);
     padding: 6px 12px;
-    border-radius: 999px;
+    border-radius: 4px;
     cursor: pointer;
     font-size: 0.85rem;
   }
 
   .back:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: rgba(43, 183, 172, 0.12);
   }
 
   .step {
@@ -287,7 +288,7 @@
   .step h2 {
     margin: 0;
     font-size: 1.05rem;
-    color: rgba(255, 255, 255, 0.85);
+    color: var(--ink);
   }
 
   .file-field {
@@ -298,13 +299,13 @@
 
   .file-field span {
     font-size: 0.8rem;
-    color: rgba(255, 255, 255, 0.5);
+    color: var(--ink-soft);
   }
 
   .sample-hint {
     margin: 0;
     font-size: 0.85rem;
-    color: rgba(255, 255, 255, 0.6);
+    color: var(--ink-soft);
   }
 
   .sample-grid {
@@ -319,9 +320,9 @@
   .sample-card {
     width: 100%;
     padding: 0;
-    border: 2px solid rgba(255, 255, 255, 0.12);
-    border-radius: 12px;
-    background: rgba(255, 255, 255, 0.04);
+    border: 2px solid rgba(91, 122, 130, 0.2);
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.85);
     overflow: hidden;
     cursor: pointer;
     transition:
@@ -331,11 +332,11 @@
 
   .sample-card:hover {
     transform: translateY(-2px);
-    border-color: rgba(120, 170, 255, 0.6);
+    border-color: rgba(43, 183, 172, 0.7);
   }
 
   .sample-card.selected {
-    border-color: rgba(120, 170, 255, 0.95);
+    border-color: var(--teal);
   }
 
   .sample-card img {
@@ -352,30 +353,30 @@
   .preview img {
     max-width: 100%;
     max-height: 320px;
-    border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 4px;
+    border: 1px solid rgba(47, 79, 87, 0.12);
     display: block;
   }
 
   .preview figcaption {
     margin-top: 8px;
     font-size: 0.8rem;
-    color: rgba(255, 255, 255, 0.55);
+    color: var(--ink-soft);
   }
 
   select {
     padding: 8px 10px;
-    border-radius: 8px;
-    background: #15151f;
-    color: #fff;
-    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 4px;
+    background: #fff;
+    color: var(--ink);
+    border: 1px solid rgba(47, 79, 87, 0.2);
     max-width: 360px;
   }
 
-  /* 드롭다운 펼침 목록(option)도 다크 배경/밝은 글자로 맞춰 가독성을 확보한다. */
+  /* Make the dropdown's expanded list (option) use a light background / dark text too, to ensure readability. */
   select option {
-    background: #15151f;
-    color: #fff;
+    background: #fff;
+    color: var(--ink);
   }
 
   .action-row {
@@ -388,7 +389,7 @@
   .cancel,
   .play {
     padding: 10px 22px;
-    border-radius: 10px;
+    border-radius: 4px;
     border: 1px solid transparent;
     color: #fff;
     font-size: 0.95rem;
@@ -399,24 +400,23 @@
   }
 
   .start {
-    border-color: rgba(120, 170, 255, 0.6);
-    background: rgba(120, 170, 255, 0.18);
+    border-color: transparent;
+    background: linear-gradient(135deg, var(--teal), var(--teal-deep));
   }
 
   .start:hover:not(:disabled),
   .play:hover:not(:disabled) {
-    background: rgba(120, 170, 255, 0.32);
     transform: translateY(-2px);
   }
 
   .cancel {
-    border-color: rgba(255, 120, 120, 0.5);
-    background: rgba(255, 120, 120, 0.14);
-    color: #ffd2d2;
+    border-color: rgba(214, 90, 90, 0.5);
+    background: rgba(214, 90, 90, 0.12);
+    color: #c0392b;
   }
 
   .cancel:hover:not(:disabled) {
-    background: rgba(255, 120, 120, 0.28);
+    background: rgba(214, 90, 90, 0.22);
     transform: translateY(-2px);
   }
 
@@ -431,8 +431,8 @@
   }
 
   .play {
-    border-color: rgba(120, 170, 255, 0.7);
-    background: rgba(120, 170, 255, 0.28);
+    border-color: transparent;
+    background: linear-gradient(135deg, var(--teal), var(--teal-deep));
     font-weight: 600;
   }
 </style>
