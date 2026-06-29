@@ -17,10 +17,30 @@
     onPlay: (songId: string) => void;
   } = $props();
 
+  type SampleImage = {
+    url: string;
+    label: string;
+    credit: { source: string; href: string };
+  };
+
   // List of selectable sample images
-  const sampleImages = [
-    { url: sample1, label: "sample 1" },
-    { url: sample2, label: "sample 2" },
+  const sampleImages: SampleImage[] = [
+    {
+      url: sample1,
+      label: "sample 1",
+      credit: {
+        source: "Unsplash",
+        href: "https://unsplash.com/ko/%EC%82%AC%EC%A7%84/%EB%85%B8%EB%9E%80-%EA%BD%83%EC%9E%8E%EC%9D%B4-%EB%8B%AC%EB%A6%B0-%EA%BD%83%EC%9D%98-%EC%84%A0%ED%83%9D%EC%A0%81-%EC%B4%88%EC%A0%90-%EC%82%AC%EC%A7%84-A_D10XO24FE",
+      },
+    },
+    {
+      url: sample2,
+      label: "sample 2",
+      credit: {
+        source: "円G (piapro)",
+        href: "https://piapro.jp/t/kvvL",
+      },
+    },
   ];
 
   let imageUrl = $state<string | null>(null);
@@ -71,7 +91,7 @@
     fileName = file.name;
   }
 
-  function selectSample(sample: { url: string; label: string }) {
+  function selectSample(sample: SampleImage) {
     revokeObjectUrl();
     imageUrl = sample.url;
     fileName = sample.label;
@@ -133,6 +153,16 @@
               >
                 <img src={sample.url} alt={sample.label} />
               </button>
+              <small class="sample-credit">
+                {t().upload.sampleCredit}:
+                <a
+                  href={sample.credit.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {sample.credit.source}
+                </a>
+              </small>
             </li>
           {/each}
         </ul>
@@ -344,6 +374,18 @@
     aspect-ratio: 1 / 1;
     object-fit: cover;
     display: block;
+  }
+
+  .sample-credit {
+    display: block;
+    margin-top: 4px;
+    font-size: 0.7rem;
+    line-height: 1.3;
+    color: var(--ink-soft);
+  }
+
+  .sample-credit a {
+    color: var(--teal);
   }
 
   .preview {
